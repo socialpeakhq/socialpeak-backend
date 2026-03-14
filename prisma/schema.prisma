@@ -12,5 +12,8 @@ model User {
   password    String
   createdAt   DateTime @default(now())
   full_name   String
-  phoneNumber String
+  phone_number String?
+  token String?
+  workspace_id Int? 
+  has_connected_workspace Boolean?
 }
