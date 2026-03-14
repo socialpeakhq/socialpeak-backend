@@ -12,7 +12,7 @@ import { CreateUserDto } from './dtos/CreateUser.dto';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @Post()
+  @Post('signup')
   @UsePipes(ValidationPipe)
   createUser(@Body() createUserDto: CreateUserDto) {
     return this.authService.registerUser(createUserDto);
