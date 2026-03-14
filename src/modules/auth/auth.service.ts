@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dtos/CreateUser.dto';
-import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import * as argon from 'argon2';
 
 type SelectedUser = Prisma.UserGetPayload<{
   select: typeof authUserSelect;
@@ -30,7 +30,7 @@ export class AuthService {
 
   async registerUser(dto: CreateUserDto) {
     try {
-      const hashedPassword = await bcrypt.hash(dto.password, 12);
+      const hashedPassword = await argon.hash(dto.password);
 
       const user = await this.prisma.user.create({
         data: {
@@ -47,7 +47,7 @@ export class AuthService {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
           throw new BadRequestException({
-            message: 'User with this e-mail already exists',
+            message: 'Registration failed',
             field: 'email',
           });
         }
