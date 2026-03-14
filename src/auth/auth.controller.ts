@@ -15,6 +15,6 @@ export class AuthController {
   @Post()
   @UsePipes(ValidationPipe)
   createUser(@Body() createUserDto: CreateUserDto) {
-    return this.authService.createUser(createUserDto);
+    return this.authService.registerUser(createUserDto);
   }
 }
