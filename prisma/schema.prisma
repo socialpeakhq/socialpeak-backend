@@ -7,7 +7,7 @@ datasource db {
 }
 
 model User {
-  id          Int      @id @default(autoincrement())
+  id          Int      @id @default(autoincrement()) 
   email       String   @unique
   password    String
   createdAt   DateTime @default(now())
@@ -16,4 +16,17 @@ model User {
   token String?
   workspace_id Int? 
   has_connected_workspace Boolean?
+
+// VIRTUAL FIELD , USED ONLY ON PRISMA AS A HELPER , NOT ON REAL DATABASE TABLE // 
+  workspaces Workspace[]
+}
+
+
+model Workspace {
+  workspace_id Int @id @default(autoincrement())
+  owner_id Int
+  workspace_name String
+
+// VIRTUAL FIELD , USED ONLY ON PRISMA AS A HELPER , NOT ON REAL DATABASE TABLE // 
+  workspace_owner User @relation(fields: [owner_id], references: [id])
 }
