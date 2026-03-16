@@ -55,7 +55,7 @@ export class AuthService {
     }
   }
 
-  generateTokens(user: SelectedUser) {
+  async generateTokens(user: SelectedUser) {
     const payload = { sub: user.id, email: user.email };
     const secret = this.configService.get<string>('JWT_SECRET');
 
@@ -66,6 +66,16 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload, {
       secret: secret,
       expiresIn: '15m',
+    });
+
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: process.env.JWT_REFRESH_SECRET,
+      expiresIn: '7d',
+    });
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { token: refreshToken },
     });
 
     return {
