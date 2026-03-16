@@ -12,6 +12,9 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+  app.enableCors({
+    origin: ['localhost:3000'],
+  });
   app.use(helmet());
 }
 
