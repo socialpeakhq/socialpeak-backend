@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import * as argon from 'argon2';
+import { LoginUserDto } from './dtos/LoginUser.dto';
 
 type SelectedUser = Prisma.UserGetPayload<{
   select: typeof authUserSelect;
@@ -53,6 +54,34 @@ export class AuthService {
         }
       }
     }
+  }
+
+  async loginUser(dto: LoginUserDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid Credentials');
+    }
+
+    const passwordMatch = await argon.verify(user.password, dto.password);
+
+    if (!passwordMatch) {
+      throw new BadRequestException('Invalid Credentials');
+    }
+
+    const safeUser = {
+      id: user.id,
+      full_name: user.full_name,
+      has_connected_workspace: user.has_connected_workspace,
+      phone_number: user.phone_number,
+      email: user.email,
+      workspace_id: user.workspace_id,
+      createdAt: user.createdAt,
+    };
+
+    return this.generateTokens(safeUser);
   }
 
   async generateTokens(user: SelectedUser) {

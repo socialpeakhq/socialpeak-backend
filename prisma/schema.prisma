@@ -12,10 +12,10 @@ model User {
   password                String
   createdAt               DateTime @default(now())
   full_name               String
-  phone_number            String?
+  phone_number            String
   token                   String?
   workspace_id            Int?
-  has_connected_workspace Boolean?
+  has_connected_workspace Boolean? @default(false)
 
   // VIRTUAL FIELD , USED ONLY ON PRISMA AS A HELPER , NOT ON REAL DATABASE TABLE // 
   workspaces Workspace[]
