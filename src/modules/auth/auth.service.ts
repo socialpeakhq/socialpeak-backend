@@ -30,10 +30,11 @@ export class AuthService {
   ) {}
 
   async registerUser(dto: CreateUserDto) {
-    try {
-      const hashedPassword = await argon.hash(dto.password);
+    const hashedPassword = await argon.hash(dto.password);
 
-      const user = await this.prisma.user.create({
+    let user: SelectedUser;
+    try {
+      user = await this.prisma.user.create({
         data: {
           email: dto.email,
           full_name: dto.full_name,
@@ -42,18 +43,21 @@ export class AuthService {
         },
         select: authUserSelect,
       });
-
-      return this.generateTokens(user);
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2002') {
-          throw new BadRequestException({
-            message: 'Registration failed',
-            field: 'email',
-          });
-        }
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new BadRequestException({
+          message: 'Registration failed',
+          field: 'email',
+        });
       }
+      throw error;
     }
+
+    const tokens = await this.generateTokens(user);
+    return { ...tokens, message: 'User created successfully' };
   }
 
   async loginUser(dto: LoginUserDto) {
@@ -71,7 +75,7 @@ export class AuthService {
       throw new BadRequestException('Invalid Credentials');
     }
 
-    const safeUser = {
+    const safeUser: SelectedUser = {
       id: user.id,
       full_name: user.full_name,
       has_connected_workspace: user.has_connected_workspace,
@@ -81,26 +85,31 @@ export class AuthService {
       createdAt: user.createdAt,
     };
 
-    return this.generateTokens(safeUser);
+    const tokens = await this.generateTokens(safeUser);
+    return { ...tokens, message: 'Login successful' };
   }
 
-  async generateTokens(user: SelectedUser) {
+  private async generateTokens(user: SelectedUser) {
     const payload = { sub: user.id, email: user.email };
-    const secret = this.configService.get<string>('JWT_SECRET');
 
-    if (!secret) {
-      throw new Error('Secret not found!');
+    const jwtSecret = this.configService.get<string>('JWT_SECRET');
+    const jwtRefreshSecret =
+      this.configService.get<string>('JWT_REFRESH_SECRET');
+
+    if (!jwtSecret || !jwtRefreshSecret) {
+      throw new Error('JWT secret not found!');
     }
 
-    const accessToken = this.jwtService.sign(payload, {
-      secret: secret,
-      expiresIn: '15m',
-    });
-
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET,
-      expiresIn: '7d',
-    });
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret: jwtSecret,
+        expiresIn: '15m',
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: jwtRefreshSecret,
+        expiresIn: '7d',
+      }),
+    ]);
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -110,7 +119,6 @@ export class AuthService {
     return {
       data: user,
       access_token: accessToken,
-      message: 'User created successfully',
     };
   }
 }
