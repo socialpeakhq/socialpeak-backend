@@ -57,6 +57,13 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(user);
+    await this.prisma.workspace.create({
+      data: {
+        owner_id: user.id,
+        workspace_name: '',
+        created_at: new Date(),
+      },
+    });
     return { ...tokens, message: 'User created successfully' };
   }
 
