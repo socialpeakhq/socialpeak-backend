@@ -18,7 +18,6 @@ const authUserSelect = {
   full_name: true,
   has_connected_workspace: true,
   phone_number: true,
-  workspace_id: true,
 } satisfies Prisma.UserSelect;
 
 @Injectable()
@@ -88,7 +87,6 @@ export class AuthService {
       has_connected_workspace: user.has_connected_workspace,
       phone_number: user.phone_number,
       email: user.email,
-      workspace_id: user.workspace_id,
       createdAt: user.createdAt,
     };
 

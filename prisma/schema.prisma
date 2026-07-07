@@ -15,7 +15,6 @@ model User {
   has_connected_workspace Boolean?    @default(false)
   phone_number            String
   token                   String?
-  workspace_id            Int?
   workspaces              Workspace[]
 }
 
