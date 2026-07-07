@@ -3,15 +3,19 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
+import { WorkspaceModule } from './modules/workspace/workspace.module';
+import { WorkspaceService } from './workspace/workspace.service';
+import { WorkspaceController } from './workspace/workspace.controller';
 
 @Module({
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [AppController, WorkspaceController],
+  providers: [AppService, WorkspaceService],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
     AuthModule,
+    WorkspaceModule,
   ],
 })
 export class AppModule {}
