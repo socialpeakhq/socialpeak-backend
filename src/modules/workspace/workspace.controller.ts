@@ -7,7 +7,7 @@ import type { JwtPayload } from '../../decorators/current-user.decorator';
 export class WorkspaceController {
   constructor(private readonly workspaceService: WorkspaceService) {}
 
-  @Get()
+  @Get(':id')
   getWorkspaces(@CurrentUser() user: JwtPayload) {
     return this.workspaceService.getAllWorkspaces(user.sub);
   }
