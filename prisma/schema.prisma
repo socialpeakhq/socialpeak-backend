@@ -7,21 +7,59 @@ datasource db {
 }
 
 model User {
-  id                      Int         @id @default(autoincrement())
-  email                   String      @unique
+  id                      Int              @id @default(autoincrement())
+  email                   String           @unique
   password                String
-  createdAt               DateTime    @default(now())
+  createdAt               DateTime         @default(now())
   full_name               String
-  has_connected_workspace Boolean?    @default(false)
+  has_connected_workspace Boolean?         @default(false)
   phone_number            String
   token                   String?
   workspaces              Workspace[]
+  meta_connections_linked MetaConnection[]
 }
 
 model Workspace {
-  workspace_id    Int      @id @default(autoincrement())
+  workspace_id    Int             @id @default(autoincrement())
   owner_id        Int
   workspace_name  String
-  created_at      DateTime @default(now())
-  workspace_owner User     @relation(fields: [owner_id], references: [id])
+  created_at      DateTime        @default(now())
+  workspace_owner User            @relation(fields: [owner_id], references: [id])
+  meta_connection MetaConnection?
+  facebook_pages  FacebookPage[]
+}
+
+// One Meta (Facebook) OAuth grant per workspace. Holds the long-lived user
+// access token used to re-fetch the workspace's Pages/Instagram accounts
+// without asking the user to go through the Facebook login dialog again.
+model MetaConnection {
+  id                           Int       @id @default(autoincrement())
+  workspace_id                 Int       @unique
+  workspace                    Workspace @relation(fields: [workspace_id], references: [workspace_id])
+  linked_by_id                 Int
+  linked_by                    User      @relation(fields: [linked_by_id], references: [id])
+  user_access_token            String
+  user_access_token_expires_at DateTime?
+  created_at                   DateTime  @default(now())
+  updated_at                   DateTime  @updatedAt
+}
+
+// A Facebook Page the workspace has access to, with the Instagram Business
+// account connected to it (if any). instagram_* fields are null when the
+// Page has no linked Instagram account.
+model FacebookPage {
+  id                            Int       @id @default(autoincrement())
+  workspace_id                  Int
+  workspace                     Workspace @relation(fields: [workspace_id], references: [workspace_id])
+  page_id                       String    @unique
+  page_name                     String
+  page_access_token             String
+  instagram_account_id          String?   @unique
+  instagram_username            String?
+  instagram_name                String?
+  instagram_profile_picture_url String?
+  created_at                    DateTime  @default(now())
+  updated_at                    DateTime  @updatedAt
+
+  @@index([workspace_id])
 }
