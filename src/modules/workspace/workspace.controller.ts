@@ -1,6 +1,14 @@
-import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  UseGuards,
+} from '@nestjs/common';
 import { WorkspaceService } from './workspace.service';
+import { AuthGuard } from '../../guards/auth.guard';
 
+@UseGuards(AuthGuard)
 @Controller('workspace')
 export class WorkspaceController {
   constructor(private readonly workspaceService: WorkspaceService) {}
