@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dtos/CreateUser.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -33,14 +37,24 @@ export class AuthService {
 
     let user: SelectedUser;
     try {
-      user = await this.prisma.user.create({
-        data: {
-          email: dto.email,
-          full_name: dto.full_name,
-          password: hashedPassword,
-          phone_number: dto.phone_number,
-        },
-        select: authUserSelect,
+      user = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: {
+            email: dto.email,
+            full_name: dto.full_name,
+            password: hashedPassword,
+            phone_number: dto.phone_number,
+          },
+          select: authUserSelect,
+        });
+        await tx.workspace.create({
+          data: {
+            owner_id: created.id,
+            workspace_name: '',
+            created_at: new Date(),
+          },
+        });
+        return created;
       });
     } catch (error) {
       if (
@@ -56,13 +70,6 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(user);
-    await this.prisma.workspace.create({
-      data: {
-        owner_id: user.id,
-        workspace_name: '',
-        created_at: new Date(),
-      },
-    });
     return { ...tokens, message: 'User created successfully' };
   }
 
@@ -72,13 +79,13 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('Invalid Credentials');
+      throw new UnauthorizedException('Invalid Credentials');
     }
 
     const passwordMatch = await argon.verify(user.password, dto.password);
 
     if (!passwordMatch) {
-      throw new BadRequestException('Invalid Credentials');
+      throw new UnauthorizedException('Invalid Credentials');
     }
 
     const safeUser: SelectedUser = {
@@ -92,6 +99,51 @@ export class AuthService {
 
     const tokens = await this.generateTokens(safeUser);
     return { ...tokens, message: 'Login successful' };
+  }
+
+  async refreshTokens(refreshToken: string) {
+    const jwtRefreshSecret =
+      this.configService.get<string>('JWT_REFRESH_SECRET');
+    if (!jwtRefreshSecret) {
+      throw new Error('JWT secret not found!');
+    }
+
+    let payload: { sub: number; email: string };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: jwtRefreshSecret,
+      });
+    } catch {
+      throw new UnauthorizedException();
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { ...authUserSelect, token: true },
+    });
+
+    if (!user || user.token !== refreshToken) {
+      throw new UnauthorizedException();
+    }
+
+    const safeUser: SelectedUser = {
+      id: user.id,
+      full_name: user.full_name,
+      has_connected_workspace: user.has_connected_workspace,
+      phone_number: user.phone_number,
+      email: user.email,
+      createdAt: user.createdAt,
+    };
+
+    return this.generateTokens(safeUser);
+  }
+
+  async logout(userId: number) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { token: null },
+    });
+    return { message: 'Logged out successfully' };
   }
 
   private async generateTokens(user: SelectedUser) {
@@ -124,6 +176,7 @@ export class AuthService {
     return {
       data: user,
       access_token: accessToken,
+      refresh_token: refreshToken,
     };
   }
 }

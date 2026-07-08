@@ -1,20 +1,14 @@
-import {
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { WorkspaceService } from './workspace.service';
-import { AuthGuard } from '../../guards/auth.guard';
+import { CurrentUser } from '../../decorators/current-user.decorator';
+import type { JwtPayload } from '../../decorators/current-user.decorator';
 
-@UseGuards(AuthGuard)
 @Controller('workspace')
 export class WorkspaceController {
   constructor(private readonly workspaceService: WorkspaceService) {}
 
-  @Get(':id')
-  getWorkspaces(@Param('id', ParseIntPipe) id: number) {
-    return this.workspaceService.getAllWorkspaces(id);
+  @Get()
+  getWorkspaces(@CurrentUser() user: JwtPayload) {
+    return this.workspaceService.getAllWorkspaces(user.sub);
   }
 }
