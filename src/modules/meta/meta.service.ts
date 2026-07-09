@@ -127,17 +127,18 @@ export class MetaService {
     }
   }
 
-  buildPopupResponseHtml(payload: MetaPopupMessage): string {
+  buildPopupResponse(payload: MetaPopupMessage): { html: string; nonce: string } {
     const frontendOrigin = this.getRequiredConfig('FRONTEND_URL');
+    const nonce = randomUUID();
     const message = JSON.stringify({
       source: 'meta-oauth',
       ...payload,
     }).replace(/</g, '\\u003c');
 
-    return `<!doctype html>
+    const html = `<!doctype html>
 <html>
   <body>
-    <script>
+    <script nonce="${nonce}">
       if (window.opener) {
         window.opener.postMessage(${message}, ${JSON.stringify(frontendOrigin)});
       }
@@ -145,6 +146,8 @@ export class MetaService {
     </script>
   </body>
 </html>`;
+
+    return { html, nonce };
   }
 
   async getWorkspaceAccounts(

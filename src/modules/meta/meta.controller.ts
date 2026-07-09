@@ -38,7 +38,21 @@ export class MetaController {
   @UsePipes(ValidationPipe)
   async callback(@Query() query: MetaCallbackDto, @Res() res: Response) {
     const payload = await this.metaService.processCallback(query);
-    res.type('html').send(this.metaService.buildPopupResponseHtml(payload));
+    const { html, nonce } = this.metaService.buildPopupResponse(payload);
+
+    // Helmet sets COOP: same-origin globally, which severs window.opener for
+    // this popup once it navigates here — relax it just for this response so
+    // postMessage back to the opener still works.
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+    // Helmet's global CSP has script-src 'self', which blocks the inline
+    // script this page needs to postMessage the result and close itself.
+    // Scope a minimal, nonce-based policy to just this response instead of
+    // loosening the app-wide default.
+    res.setHeader(
+      'Content-Security-Policy',
+      `default-src 'none'; script-src 'nonce-${nonce}'`,
+    );
+    res.type('html').send(html);
   }
 
   @Get('workspace/:workspaceId/accounts')
