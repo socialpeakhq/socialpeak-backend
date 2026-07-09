@@ -1,13 +1,14 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   Param,
   ParseIntPipe,
   Query,
+  Res,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { MetaService } from './meta.service';
 import { MetaCallbackDto } from './dtos/meta-callback.dto';
 import { MetaConnectDto } from './dtos/meta-connect.dto';
@@ -35,25 +36,9 @@ export class MetaController {
   @Public()
   @Get('callback')
   @UsePipes(ValidationPipe)
-  async callback(@Query() query: MetaCallbackDto) {
-    if (query.error) {
-      return {
-        linked: false,
-        error: query.error,
-        error_description: query.error_description ?? query.error_reason,
-      };
-    }
-
-    if (!query.code || !query.state) {
-      throw new BadRequestException('Missing code or state parameter');
-    }
-
-    const result = await this.metaService.handleCallback(
-      query.code,
-      query.state,
-    );
-
-    return { linked: true, ...result };
+  async callback(@Query() query: MetaCallbackDto, @Res() res: Response) {
+    const payload = await this.metaService.processCallback(query);
+    res.type('html').send(this.metaService.buildPopupResponseHtml(payload));
   }
 
   @Get('workspace/:workspaceId/accounts')

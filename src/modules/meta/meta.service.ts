@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,7 +13,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TokenCipher } from '../../utils/token-cipher';
 import {
   FetchedPage,
+  MetaCallbackQuery,
   MetaLinkResult,
+  MetaPopupMessage,
   MetaStatePayload,
   MetaGraphErrorResponse,
   MetaInstagramBusinessAccount,
@@ -89,6 +92,59 @@ export class MetaService {
       longLivedToken,
       fetchedPages,
     );
+  }
+
+  async processCallback(query: MetaCallbackQuery): Promise<MetaPopupMessage> {
+    if (query.error) {
+      return {
+        linked: false,
+        error: query.error,
+        error_description: query.error_description ?? query.error_reason,
+      };
+    }
+
+    if (!query.code || !query.state) {
+      return {
+        linked: false,
+        error: 'invalid_request',
+        error_description: 'Missing code or state parameter',
+      };
+    }
+
+    try {
+      const result = await this.handleCallback(query.code, query.state);
+      return { linked: true, ...result };
+    } catch (error) {
+      const description =
+        error instanceof HttpException
+          ? error.message
+          : 'Failed to link Meta account';
+      return {
+        linked: false,
+        error: 'link_failed',
+        error_description: description,
+      };
+    }
+  }
+
+  buildPopupResponseHtml(payload: MetaPopupMessage): string {
+    const frontendOrigin = this.getRequiredConfig('FRONTEND_URL');
+    const message = JSON.stringify({
+      source: 'meta-oauth',
+      ...payload,
+    }).replace(/</g, '\\u003c');
+
+    return `<!doctype html>
+<html>
+  <body>
+    <script>
+      if (window.opener) {
+        window.opener.postMessage(${message}, ${JSON.stringify(frontendOrigin)});
+      }
+      window.close();
+    </script>
+  </body>
+</html>`;
   }
 
   async getWorkspaceAccounts(

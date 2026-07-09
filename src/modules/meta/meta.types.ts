@@ -67,3 +67,20 @@ export interface MetaLinkResult {
   workspace_id: number;
   pages: WorkspaceLinkedPage[];
 }
+
+export interface MetaCallbackQuery {
+  code?: string;
+  state?: string;
+  error?: string;
+  error_reason?: string;
+  error_description?: string;
+}
+
+// Posted to window.opener from the OAuth popup once the callback resolves.
+export interface MetaPopupMessage {
+  linked: boolean;
+  workspace_id?: number;
+  pages?: WorkspaceLinkedPage[];
+  error?: string;
+  error_description?: string;
+}
