@@ -29,9 +29,6 @@ model Workspace {
   facebook_pages  FacebookPage[]
 }
 
-// One Meta (Facebook) OAuth grant per workspace. Holds the long-lived user
-// access token used to re-fetch the workspace's Pages/Instagram accounts
-// without asking the user to go through the Facebook login dialog again.
 model MetaConnection {
   id                           Int       @id @default(autoincrement())
   workspace_id                 Int       @unique
@@ -44,9 +41,6 @@ model MetaConnection {
   updated_at                   DateTime  @updatedAt
 }
 
-// A Facebook Page the workspace has access to, with the Instagram Business
-// account connected to it (if any). instagram_* fields are null when the
-// Page has no linked Instagram account.
 model FacebookPage {
   id                            Int       @id @default(autoincrement())
   workspace_id                  Int
