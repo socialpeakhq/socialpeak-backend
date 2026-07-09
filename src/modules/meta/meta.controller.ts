@@ -8,24 +8,24 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { InstagramService } from './instagram.service';
-import { InstagramCallbackDto } from './dtos/instagram-callback.dto';
-import { InstagramConnectDto } from './dtos/instagram-connect.dto';
+import { MetaService } from './meta.service';
+import { MetaCallbackDto } from './dtos/meta-callback.dto';
+import { MetaConnectDto } from './dtos/meta-connect.dto';
 import { Public } from '../../decorators/public.decorator';
 import { CurrentUser } from '../../decorators/current-user.decorator';
 import type { JwtPayload } from '../../decorators/current-user.decorator';
 
-@Controller('instagram')
-export class InstagramController {
-  constructor(private readonly instagramService: InstagramService) {}
+@Controller('meta')
+export class MetaController {
+  constructor(private readonly metaService: MetaService) {}
 
   @Get('connect')
   @UsePipes(ValidationPipe)
   async connect(
     @CurrentUser() user: JwtPayload,
-    @Query() query: InstagramConnectDto,
+    @Query() query: MetaConnectDto,
   ) {
-    const url = await this.instagramService.createAuthorizationUrl(
+    const url = await this.metaService.createAuthorizationUrl(
       user.sub,
       query.workspace_id,
     );
@@ -35,7 +35,7 @@ export class InstagramController {
   @Public()
   @Get('callback')
   @UsePipes(ValidationPipe)
-  async callback(@Query() query: InstagramCallbackDto) {
+  async callback(@Query() query: MetaCallbackDto) {
     if (query.error) {
       return {
         linked: false,
@@ -48,7 +48,7 @@ export class InstagramController {
       throw new BadRequestException('Missing code or state parameter');
     }
 
-    const result = await this.instagramService.handleCallback(
+    const result = await this.metaService.handleCallback(
       query.code,
       query.state,
     );
@@ -61,6 +61,6 @@ export class InstagramController {
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId', ParseIntPipe) workspaceId: number,
   ) {
-    return this.instagramService.getWorkspaceAccounts(user.sub, workspaceId);
+    return this.metaService.getWorkspaceAccounts(user.sub, workspaceId);
   }
 }

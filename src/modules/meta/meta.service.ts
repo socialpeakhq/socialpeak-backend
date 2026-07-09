@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import {
   BadRequestException,
   ForbiddenException,
@@ -16,16 +12,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TokenCipher } from '../../utils/token-cipher';
 import {
   FetchedPage,
-  InstagramLinkResult,
-  InstagramStatePayload,
+  MetaLinkResult,
+  MetaStatePayload,
   MetaGraphErrorResponse,
   MetaInstagramBusinessAccount,
   MetaPagesResponse,
   MetaTokenResponse,
   WorkspaceLinkedPage,
-} from './instagram.types';
+} from './meta.types';
 
-const STATE_AUDIENCE = 'instagram-oauth-state';
+const STATE_AUDIENCE = 'meta-oauth-state';
 const STATE_TTL = '10m';
 
 const DEFAULT_GRAPH_API_VERSION = 'v21.0';
@@ -38,7 +34,7 @@ const DEFAULT_SCOPES = [
 ].join(',');
 
 @Injectable()
-export class InstagramService {
+export class MetaService {
   constructor(
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
@@ -56,7 +52,7 @@ export class InstagramService {
         sub: userId,
         workspace_id: workspaceId,
         nonce: randomUUID(),
-      } satisfies InstagramStatePayload,
+      } satisfies MetaStatePayload,
       {
         secret: this.stateSecret,
         expiresIn: STATE_TTL,
@@ -76,10 +72,7 @@ export class InstagramService {
     return url.toString();
   }
 
-  async handleCallback(
-    code: string,
-    state: string,
-  ): Promise<InstagramLinkResult> {
+  async handleCallback(code: string, state: string): Promise<MetaLinkResult> {
     const { sub: userId, workspace_id: workspaceId } =
       await this.verifyState(state);
     await this.assertWorkspaceOwnership(userId, workspaceId);
@@ -134,7 +127,7 @@ export class InstagramService {
     userId: number,
     longLivedToken: MetaTokenResponse,
     fetchedPages: FetchedPage[],
-  ): Promise<InstagramLinkResult> {
+  ): Promise<MetaLinkResult> {
     const userAccessTokenExpiresAt = longLivedToken.expires_in
       ? new Date(Date.now() + longLivedToken.expires_in * 1000)
       : null;
@@ -232,9 +225,9 @@ export class InstagramService {
     };
   }
 
-  private async verifyState(state: string): Promise<InstagramStatePayload> {
+  private async verifyState(state: string): Promise<MetaStatePayload> {
     try {
-      return await this.jwtService.verifyAsync<InstagramStatePayload>(state, {
+      return await this.jwtService.verifyAsync<MetaStatePayload>(state, {
         secret: this.stateSecret,
         audience: STATE_AUDIENCE,
       });

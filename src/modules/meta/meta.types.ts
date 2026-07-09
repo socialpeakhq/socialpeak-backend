@@ -1,4 +1,4 @@
-export interface InstagramStatePayload {
+export interface MetaStatePayload {
   sub: number;
   workspace_id: number;
   nonce: string;
@@ -63,7 +63,7 @@ export interface WorkspaceLinkedPage {
   updated_at: Date;
 }
 
-export interface InstagramLinkResult {
+export interface MetaLinkResult {
   workspace_id: number;
   pages: WorkspaceLinkedPage[];
 }

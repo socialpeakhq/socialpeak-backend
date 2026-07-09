@@ -6,7 +6,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { AuthGuard } from './guards/auth.guard';
-import { InstagramModule } from './modules/instagram/instagram.module';
+import { MetaModule } from './modules/meta/meta.module';
 
 @Module({
   controllers: [AppController],
@@ -17,7 +17,7 @@ import { InstagramModule } from './modules/instagram/instagram.module';
     }),
     AuthModule,
     WorkspaceModule,
-    InstagramModule,
+    MetaModule,
   ],
 })
 export class AppModule {}

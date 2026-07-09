@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsPositive } from 'class-validator';
 
-export class InstagramConnectDto {
+export class MetaConnectDto {
   @Type(() => Number)
   @IsInt()
   @IsPositive()
