@@ -84,3 +84,22 @@ export interface MetaPopupMessage {
   error?: string;
   error_description?: string;
 }
+
+export type MetaInsightsData = {
+  name: string;
+  period: string;
+  title: string;
+  description: string;
+  total_value: {
+    value: number;
+  };
+  id: number;
+};
+
+export type MetaInsightsResponse = {
+  data: MetaInsightsData[];
+  paging: {
+    next: string;
+    previous: string;
+  };
+};

@@ -22,6 +22,7 @@ import {
   MetaPagesResponse,
   MetaTokenResponse,
   WorkspaceLinkedPage,
+  MetaInsightsResponse,
 } from './meta.types';
 
 const STATE_AUDIENCE = 'meta-oauth-state';
@@ -127,7 +128,10 @@ export class MetaService {
     }
   }
 
-  buildPopupResponse(payload: MetaPopupMessage): { html: string; nonce: string } {
+  buildPopupResponse(payload: MetaPopupMessage): {
+    html: string;
+    nonce: string;
+  } {
     const frontendOrigin = this.getRequiredConfig('FRONTEND_URL');
     const nonce = randomUUID();
     const message = JSON.stringify({
@@ -163,6 +167,35 @@ export class MetaService {
 
     return pages.map((page) => this.toWorkspaceLinkedPage(page));
   }
+
+  async getPageInsights(userId: number, workspace_id: number, page_id: number) {
+    await this.assertWorkspaceOwnership(userId, workspace_id);
+    const url = new URL(
+      `https://graph.facebook.com/${this.graphVersion}/${page_id}/insights`,
+    );
+    url.searchParams.set(
+      'metric',
+      'reach,profile_views,total_interactions,likes,comments,views,reposts',
+    );
+    url.searchParams.set('metric_type', 'total_value');
+    url.searchParams.set('period', 'day');
+    try {
+      const requestData = await this.request<MetaInsightsResponse>(url);
+      const { data } = requestData;
+
+      const onlyValuesData = data.map((item) => ({
+        [item.name]: item.total_value.value,
+      }));
+
+      return onlyValuesData;
+    } catch {
+      throw new NotFoundException(
+        "Today's insights for selected account are not found",
+      );
+    }
+  }
+
+  // PRIVATE SERVICES //
 
   private async assertWorkspaceOwnership(
     userId: number,
