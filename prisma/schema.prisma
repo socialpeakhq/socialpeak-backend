@@ -42,18 +42,33 @@ model MetaConnection {
 }
 
 model FacebookPage {
-  id                            Int       @id @default(autoincrement())
+  id                            Int                 @id @default(autoincrement())
   workspace_id                  Int
-  workspace                     Workspace @relation(fields: [workspace_id], references: [workspace_id])
-  page_id                       String    @unique
+  workspace                     Workspace           @relation(fields: [workspace_id], references: [workspace_id])
+  page_id                       String              @unique
   page_name                     String
   page_access_token             String
-  instagram_account_id          String?   @unique
+  instagram_account_id          String?             @unique
   instagram_username            String?
   instagram_name                String?
   instagram_profile_picture_url String?
-  created_at                    DateTime  @default(now())
-  updated_at                    DateTime  @updatedAt
+  created_at                    DateTime            @default(now())
+  updated_at                    DateTime            @updatedAt
+  insightsSnapshots             InsightsSnapshots[]
 
   @@index([workspace_id])
+}
+
+model InsightsSnapshots {
+  id               Int          @id @default(autoincrement())
+  facebook_page_id Int
+  facebook_page    FacebookPage @relation(fields: [facebook_page_id], references: [id])
+  platform         String
+  metric           String
+  value            Int
+  captured_at      DateTime
+  created_at       DateTime
+
+  @@unique([facebook_page_id, platform, metric, captured_at])
+  @@index([facebook_page_id, captured_at])
 }
