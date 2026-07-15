@@ -28,7 +28,7 @@ import {
 const STATE_AUDIENCE = 'meta-oauth-state';
 const STATE_TTL = '10m';
 
-const DEFAULT_GRAPH_API_VERSION = 'v21.0';
+export const DEFAULT_GRAPH_API_VERSION = 'v21.0';
 const DEFAULT_SCOPES = [
   'instagram_basic',
   'pages_show_list',
@@ -183,9 +183,14 @@ export class MetaService {
       const requestData = await this.request<MetaInsightsResponse>(url);
       const { data } = requestData;
 
-      const onlyValuesData = data.map((item) => ({
-        [item.name]: item.total_value.value,
-      }));
+      const onlyValuesData = data
+        .filter(
+          (item): item is typeof item & { total_value: { value: number } } =>
+            typeof item.total_value?.value === 'number',
+        )
+        .map((item) => ({
+          [item.name]: item.total_value.value,
+        }));
 
       return onlyValuesData;
     } catch {

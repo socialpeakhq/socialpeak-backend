@@ -46,8 +46,6 @@ export interface LinkedInstagramAccount {
   profile_picture_url?: string;
 }
 
-// Internal representation used while syncing — carries the raw tokens that
-// get encrypted and persisted, never returned to the client as-is.
 export interface FetchedPage {
   page_id: string;
   page_name: string;
@@ -55,7 +53,6 @@ export interface FetchedPage {
   instagram_account: LinkedInstagramAccount | null;
 }
 
-// What the API returns for a linked account — no raw tokens.
 export interface WorkspaceLinkedPage {
   page_id: string;
   page_name: string;
@@ -76,7 +73,6 @@ export interface MetaCallbackQuery {
   error_description?: string;
 }
 
-// Posted to window.opener from the OAuth popup once the callback resolves.
 export interface MetaPopupMessage {
   linked: boolean;
   workspace_id?: number;
@@ -90,10 +86,14 @@ export type MetaInsightsData = {
   period: string;
   title: string;
   description: string;
-  total_value: {
+  total_value?: {
     value: number;
   };
-  id: number;
+  values?: {
+    value: number;
+    end_time: string;
+  }[];
+  id: string;
 };
 
 export type MetaInsightsResponse = {

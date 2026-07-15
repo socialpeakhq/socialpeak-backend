@@ -1,29 +1,131 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/require-await */
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  MetaGraphErrorResponse,
+  MetaInsightsResponse,
+} from '../meta/meta.types';
+import { DEFAULT_GRAPH_API_VERSION } from '../meta/meta.service';
+import { ConfigService } from '@nestjs/config';
+import { TokenCipher } from '../../utils/token-cipher';
 import { FacebookPage } from '@prisma/client';
-import { MetaGraphErrorResponse } from '../meta/meta.types';
+import { startOfDay, subDays } from 'date-fns';
+
+const page_default_metrics = ''; // none needed for Page currently
+const page_total_value_metrics =
+  'page_follows,page_views_total,page_post_engagements,page_actions_post_reactions_total';
+
+const instagram_default_metrics = 'follower_count';
+const instagram_total_value_metrics =
+  'reach,profile_views,likes,comments,views,content_views,reposts';
 
 @Injectable()
 export class MetaInsightsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(MetaInsightsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
   @Cron(CronExpression.EVERY_10_SECONDS)
   async getMetaInsights() {
     const pages = await this.prisma.facebookPage.findMany();
     for (const page of pages) {
-      await this.syncOneAccount(page);
+      try {
+        await this.syncOneAccount(page);
+      } catch (error) {
+        this.logger.error(
+          `Failed to sync insights for page ${page.page_id}`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
     }
   }
 
   async syncOneAccount(page: FacebookPage) {
-    const default_metrics =
-      'reach,follower_count,profile_views,likes,comments,views';
+    const token = this.cipher.decrypt(page.page_access_token);
+    const capturedAt: Date = startOfDay(subDays(new Date(), 1));
+    await this.syncPlatform(
+      page.id,
+      page.page_id,
+      token,
+      'facebook',
+      page_default_metrics,
+      page_total_value_metrics,
+      capturedAt,
+    );
 
-    // For create an initial call for the facebook page ( you may need token for it )
-    // If the page also has an instagram account linked, run the syncOneAccount with the instagram account id
-    // Save the data by metric value ( EAV TABLE IDEA )
+    if (page.instagram_account_id) {
+      await this.syncPlatform(
+        page.id,
+        page.instagram_account_id,
+        token,
+        'instagram',
+        instagram_default_metrics,
+        instagram_total_value_metrics,
+        capturedAt,
+      );
+    }
+  }
+
+  private async syncPlatform(
+    facebookPageId: number,
+    nodeId: string,
+    token: string,
+    platform: 'facebook' | 'instagram',
+    defaultMetrics: string,
+    totalValueMetrics: string,
+    capturedAt: Date,
+  ) {
+    const [defaultResult, totalValueResult] = await Promise.all([
+      defaultMetrics
+        ? this.fetchInsights(nodeId, token, defaultMetrics, false)
+        : { data: [] },
+      totalValueMetrics
+        ? this.fetchInsights(nodeId, token, totalValueMetrics, true)
+        : { data: [] },
+    ]);
+
+    for (const item of totalValueResult.data) {
+      await this.upsertMetric(
+        facebookPageId,
+        platform,
+        item.name,
+        item.total_value?.value,
+        capturedAt,
+      );
+    }
+
+    for (const item of defaultResult.data) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+      const latest = item.values && item.values[0].value;
+      if (typeof latest !== 'number') continue;
+      await this.upsertMetric(
+        facebookPageId,
+        platform,
+        item.name,
+        latest,
+        capturedAt,
+      );
+    }
+  }
+
+  private async fetchInsights(
+    id: string,
+    token: string,
+    metrics: string,
+    useTotalValue: boolean,
+  ) {
+    const url = new URL(
+      `https://graph.facebook.com/${this.graphVersion}/${id}/insights`,
+    );
+
+    url.searchParams.set('metric', metrics);
+    url.searchParams.set('period', 'day');
+    if (useTotalValue) url.searchParams.set('metric_type', 'total_value');
+    url.searchParams.set('access_token', token);
+
+    return await this.request<MetaInsightsResponse>(url);
   }
 
   private async request<T>(url: URL): Promise<T> {
@@ -38,5 +140,56 @@ export class MetaInsightsService {
     }
 
     return body as T;
+  }
+
+  private async upsertMetric(
+    facebookPageId: number,
+    platform: 'facebook' | 'instagram',
+    metric: string,
+    value: unknown,
+    capturedAt: Date,
+  ) {
+    if (typeof value !== 'number') return;
+
+    await this.prisma.insightsSnapshots.upsert({
+      where: {
+        facebook_page_id_platform_metric_captured_at: {
+          facebook_page_id: facebookPageId,
+          platform,
+          metric,
+          captured_at: capturedAt,
+        },
+      },
+      create: {
+        facebook_page_id: facebookPageId,
+        platform,
+        metric,
+        value,
+        captured_at: capturedAt,
+        created_at: new Date(),
+      },
+      update: { value },
+    });
+  }
+
+  private get graphVersion(): string {
+    return (
+      this.config.get<string>('META_GRAPH_API_VERSION') ??
+      DEFAULT_GRAPH_API_VERSION
+    );
+  }
+
+  private get cipher(): TokenCipher {
+    return TokenCipher.fromBase64(
+      this.getRequiredConfig('TOKEN_ENCRYPTION_KEY'),
+    );
+  }
+
+  private getRequiredConfig(key: string): string {
+    const value = this.config.get<string>(key);
+    if (!value) {
+      throw new Error(`${key} is not configured`);
+    }
+    return value;
   }
 }

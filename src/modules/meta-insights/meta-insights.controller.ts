@@ -5,9 +5,13 @@ import { MetaInsightsService } from './meta-insights.service';
 export class MetaInsightsController {
   constructor(private readonly metaInsightsService: MetaInsightsService) {}
 
+  @Get()
+  startInsights() {
+    return this.metaInsightsService.getMetaInsights();
+  }
+
   @Get('/workspace/:workspaceId')
   getMetaInsights(@Param('workspaceId', ParseIntPipe) workspaceId: number) {
     return workspaceId;
-    return this.metaInsightsService.getMetaInsights();
   }
 }
