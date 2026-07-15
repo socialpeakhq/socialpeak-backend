@@ -11,7 +11,7 @@ import { TokenCipher } from '../../utils/token-cipher';
 import { FacebookPage } from '@prisma/client';
 import { startOfDay, subDays } from 'date-fns';
 
-const page_default_metrics = ''; // none needed for Page currently
+const page_default_metrics = '';
 const page_total_value_metrics =
   'page_follows,page_views_total,page_post_engagements,page_actions_post_reactions_total';
 
