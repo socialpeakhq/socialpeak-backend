@@ -202,7 +202,7 @@ export class MetaService {
 
   // PRIVATE SERVICES //
 
-  private async assertWorkspaceOwnership(
+  async assertWorkspaceOwnership(
     userId: number,
     workspaceId: number,
   ): Promise<void> {
@@ -284,6 +284,19 @@ export class MetaService {
         );
       }
       throw error;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { connected_accounts: true },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    if (user && !user.connected_accounts.includes('meta')) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { connected_accounts: { push: 'meta' } },
+      });
     }
 
     return {

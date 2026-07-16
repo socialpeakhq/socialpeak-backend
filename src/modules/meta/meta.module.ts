@@ -8,5 +8,6 @@ import { MetaService } from './meta.service';
   imports: [ConfigModule, JwtModule.register({})],
   controllers: [MetaController],
   providers: [MetaService],
+  exports: [MetaService],
 })
 export class MetaModule {}

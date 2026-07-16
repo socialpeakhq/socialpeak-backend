@@ -1,14 +1,19 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   MetaGraphErrorResponse,
   MetaInsightsResponse,
 } from '../meta/meta.types';
-import { DEFAULT_GRAPH_API_VERSION } from '../meta/meta.service';
+import { DEFAULT_GRAPH_API_VERSION, MetaService } from '../meta/meta.service';
 import { ConfigService } from '@nestjs/config';
 import { TokenCipher } from '../../utils/token-cipher';
-import { FacebookPage } from '@prisma/client';
+import { FacebookPage, InsightsSnapshots } from '@prisma/client';
 import { startOfDay, subDays } from 'date-fns';
 
 const page_default_metrics = '';
@@ -26,9 +31,10 @@ export class MetaInsightsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly metaService: MetaService,
   ) {}
-  @Cron(CronExpression.EVERY_10_SECONDS)
-  async getMetaInsights() {
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async metaInsightsJob() {
     const pages = await this.prisma.facebookPage.findMany();
     for (const page of pages) {
       try {
@@ -38,6 +44,9 @@ export class MetaInsightsService {
           `Failed to sync insights for page ${page.page_id}`,
           error instanceof Error ? error.stack : error,
         );
+        if (error instanceof Error && error.cause) {
+          this.logger.error('Cause:', error.cause);
+        }
       }
     }
   }
@@ -67,6 +76,30 @@ export class MetaInsightsService {
       );
     }
   }
+
+  async getMetaInsights(userId: number, workspaceId: number, platform: string) {
+    await this.metaService.assertWorkspaceOwnership(userId, workspaceId);
+
+    const pageOfWorkspace = await this.prisma.facebookPage.findFirst({
+      where: { workspace_id: workspaceId },
+    });
+
+    let data: InsightsSnapshots[] = [];
+    if (pageOfWorkspace) {
+      data = await this.prisma.insightsSnapshots.findMany({
+        where: {
+          platform: platform,
+          captured_at: startOfDay(subDays(new Date(), 1)),
+          facebook_page_id: Number(pageOfWorkspace.page_id),
+        },
+      });
+      return data;
+    } else {
+      throw new NotFoundException('Data for the facebook page not found');
+    }
+  }
+
+  // CLASS ONLY METHODS (HELPER FUNCTION) //
 
   private async syncPlatform(
     facebookPageId: number,

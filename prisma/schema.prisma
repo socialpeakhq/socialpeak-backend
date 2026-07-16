@@ -15,6 +15,7 @@ model User {
   has_connected_workspace Boolean?         @default(false)
   phone_number            String
   token                   String?
+  connected_accounts      String[]         @default([])
   workspaces              Workspace[]
   meta_connections_linked MetaConnection[]
 }
