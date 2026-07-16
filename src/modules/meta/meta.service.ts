@@ -229,8 +229,21 @@ export class MetaService {
       ? new Date(Date.now() + longLivedToken.expires_in * 1000)
       : null;
 
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { workspace_id: workspaceId },
+      select: { connected_accounts: true },
+    });
+
+    const connectedAccounts = workspace?.connected_accounts.includes('meta')
+      ? workspace.connected_accounts
+      : [...(workspace?.connected_accounts ?? []), 'meta'];
+
     try {
       await this.prisma.$transaction([
+        this.prisma.workspace.update({
+          where: { workspace_id: workspaceId },
+          data: { connected_accounts: connectedAccounts },
+        }),
         this.prisma.metaConnection.upsert({
           where: { workspace_id: workspaceId },
           create: {
@@ -284,19 +297,6 @@ export class MetaService {
         );
       }
       throw error;
-    }
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { connected_accounts: true },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    if (user && !user.connected_accounts.includes('meta')) {
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { connected_accounts: { push: 'meta' } },
-      });
     }
 
     return {

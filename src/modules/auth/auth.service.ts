@@ -44,6 +44,7 @@ export class AuthService {
             full_name: dto.full_name,
             password: hashedPassword,
             phone_number: dto.phone_number,
+            has_connected_workspace: true,
           },
           select: authUserSelect,
         });

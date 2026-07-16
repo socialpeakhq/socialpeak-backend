@@ -15,19 +15,19 @@ model User {
   has_connected_workspace Boolean?         @default(false)
   phone_number            String
   token                   String?
-  connected_accounts      String[]         @default([])
   workspaces              Workspace[]
   meta_connections_linked MetaConnection[]
 }
 
 model Workspace {
-  workspace_id    Int             @id @default(autoincrement())
-  owner_id        Int
-  workspace_name  String
-  created_at      DateTime        @default(now())
-  workspace_owner User            @relation(fields: [owner_id], references: [id])
-  meta_connection MetaConnection?
-  facebook_pages  FacebookPage[]
+  workspace_id       Int             @id @default(autoincrement())
+  owner_id           Int
+  workspace_name     String
+  created_at         DateTime        @default(now())
+  connected_accounts String[]        @default([])
+  workspace_owner    User            @relation(fields: [owner_id], references: [id])
+  meta_connection    MetaConnection?
+  facebook_pages     FacebookPage[]
 }
 
 model MetaConnection {
