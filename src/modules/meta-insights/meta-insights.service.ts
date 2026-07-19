@@ -33,7 +33,7 @@ export class MetaInsightsService {
     private readonly config: ConfigService,
     private readonly metaService: MetaService,
   ) {}
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  @Cron(CronExpression.EVERY_10_SECONDS)
   async metaInsightsJob() {
     const pages = await this.prisma.facebookPage.findMany();
     for (const page of pages) {
@@ -90,7 +90,7 @@ export class MetaInsightsService {
         where: {
           platform: platform,
           captured_at: startOfDay(subDays(new Date(), 1)),
-          facebook_page_id: Number(pageOfWorkspace.page_id),
+          facebook_page_id: pageOfWorkspace.id,
         },
       });
       return data;
