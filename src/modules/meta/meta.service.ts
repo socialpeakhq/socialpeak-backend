@@ -24,7 +24,6 @@ import {
   MetaPagesResponse,
   MetaTokenResponse,
   WorkspaceLinkedPage,
-  MetaInsightsResponse,
 } from './meta.types';
 
 const STATE_AUDIENCE = 'meta-oauth-state';
