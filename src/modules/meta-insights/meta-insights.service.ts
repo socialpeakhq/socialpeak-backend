@@ -14,7 +14,8 @@ import { DEFAULT_GRAPH_API_VERSION, MetaService } from '../meta/meta.service';
 import { ConfigService } from '@nestjs/config';
 import { TokenCipher } from '../../utils/token-cipher';
 import { FacebookPage, InsightsSnapshots } from '@prisma/client';
-import { startOfDay, subDays } from 'date-fns';
+import { differenceInMinutes, startOfDay, subDays } from 'date-fns';
+import { ManualInsights } from './dtos/ManualInsights.dto';
 
 const page_default_metrics = '';
 const page_total_value_metrics =
@@ -47,6 +48,30 @@ export class MetaInsightsService {
         if (error instanceof Error && error.cause) {
           this.logger.error('Cause:', error.cause);
         }
+      }
+    }
+  }
+
+  async syncOneAccountManually(userId: number, data: ManualInsights) {
+    const nowDate = new Date();
+    const { page_id, platform, workspaceId } = data;
+    await this.metaService.assertWorkspaceOwnership(userId, workspaceId);
+    const latest = this.prisma.insightsSnapshots.aggregate({
+      where: { facebook_page_id: page_id, platform: platform },
+      _max: { created_at: true },
+    });
+
+    if (!(await latest)._max.created_at) return [];
+
+    if (differenceInMinutes(nowDate, (await latest)._max.created_at!) < 5) {
+      throw new BadRequestException('Please wait before requesting a new sync');
+    } else {
+      const page = await this.prisma.facebookPage.findFirst({
+        where: { id: page_id },
+      });
+
+      if (page) {
+        await this.syncOneAccount(page);
       }
     }
   }

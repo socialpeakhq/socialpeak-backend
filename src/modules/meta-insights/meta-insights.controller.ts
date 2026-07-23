@@ -1,7 +1,8 @@
-import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
 import { MetaInsightsService } from './meta-insights.service';
 import { CurrentUser } from '../../decorators/current-user.decorator';
 import type { JwtPayload } from '../../decorators/current-user.decorator';
+import { ManualInsights as ManualInsightsDto } from './dtos/ManualInsights.dto';
 
 @Controller('meta-insights')
 export class MetaInsightsController {
@@ -17,6 +18,17 @@ export class MetaInsightsController {
       user.sub,
       workspaceId,
       platform,
+    );
+  }
+
+  @Get('/workspace/insights/:workspaceId/:pageId/manual')
+  syncOneAccountManually(
+    @CurrentUser() user: JwtPayload,
+    @Body() manualInsightsDto: ManualInsightsDto,
+  ) {
+    return this.metaInsightsService.syncOneAccountManually(
+      user.sub,
+      manualInsightsDto,
     );
   }
 }
