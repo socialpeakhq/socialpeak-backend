@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -32,6 +34,7 @@ export class MetaInsightsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => MetaService))
     private readonly metaService: MetaService,
   ) {}
   @Cron(CronExpression.EVERY_10_SECONDS)
@@ -124,6 +127,79 @@ export class MetaInsightsService {
     }
   }
 
+  async backfillWorkspaceHistory(workspaceId: number) {
+    const pages = await this.prisma.facebookPage.findMany({
+      where: { workspace_id: workspaceId },
+    });
+
+    for (const page of pages) {
+      try {
+        await this.backfillHistory(page);
+      } catch (error) {
+        this.logger.error(
+          `Failed to backfill insights for page ${page.page_id}`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+  }
+
+  private async backfillHistory(page: FacebookPage) {
+    const token = this.cipher.decrypt(page.page_access_token);
+
+    await this.backfillPlatform(
+      page.id,
+      page.page_id,
+      token,
+      'facebook',
+      page_default_metrics,
+    );
+
+    if (page.instagram_account_id) {
+      await this.backfillPlatform(
+        page.id,
+        page.instagram_account_id,
+        token,
+        'instagram',
+        instagram_default_metrics,
+      );
+    }
+  }
+
+  private async backfillPlatform(
+    facebookPageId: number,
+    nodeId: string,
+    token: string,
+    platform: 'facebook' | 'instagram',
+    defaultMetrics: string,
+  ) {
+    if (!defaultMetrics) return;
+
+    const since = subDays(new Date(), 90);
+    const until = subDays(new Date(), 1);
+
+    const result = await this.fetchInsightsRange(
+      nodeId,
+      token,
+      defaultMetrics,
+      since,
+      until,
+    );
+
+    for (const item of result.data) {
+      for (const point of item.values ?? []) {
+        const capturedAt = startOfDay(new Date(point.end_time));
+        await this.upsertMetric(
+          facebookPageId,
+          platform,
+          item.name,
+          point.value,
+          capturedAt,
+        );
+      }
+    }
+  }
+
   // CLASS ONLY METHODS (HELPER FUNCTION) //
 
   private async syncPlatform(
@@ -181,6 +257,26 @@ export class MetaInsightsService {
     url.searchParams.set('metric', metrics);
     url.searchParams.set('period', 'day');
     if (useTotalValue) url.searchParams.set('metric_type', 'total_value');
+    url.searchParams.set('access_token', token);
+
+    return await this.request<MetaInsightsResponse>(url);
+  }
+
+  private async fetchInsightsRange(
+    id: string,
+    token: string,
+    metrics: string,
+    since: Date,
+    until: Date,
+  ) {
+    const url = new URL(
+      `https://graph.facebook.com/${this.graphVersion}/${id}/insights`,
+    );
+
+    url.searchParams.set('metric', metrics);
+    url.searchParams.set('period', 'day');
+    url.searchParams.set('since', Math.floor(since.getTime() / 1000).toString());
+    url.searchParams.set('until', Math.floor(until.getTime() / 1000).toString());
     url.searchParams.set('access_token', token);
 
     return await this.request<MetaInsightsResponse>(url);

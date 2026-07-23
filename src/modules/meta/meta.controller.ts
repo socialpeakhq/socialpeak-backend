@@ -1,6 +1,9 @@
 import {
   Controller,
+  forwardRef,
   Get,
+  Inject,
+  Logger,
   Param,
   ParseIntPipe,
   Query,
@@ -10,6 +13,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { MetaService } from './meta.service';
+import { MetaInsightsService } from '../meta-insights/meta-insights.service';
 import { MetaCallbackDto } from './dtos/meta-callback.dto';
 import { MetaConnectDto } from './dtos/meta-connect.dto';
 import { Public } from '../../decorators/public.decorator';
@@ -18,7 +22,13 @@ import type { JwtPayload } from '../../decorators/current-user.decorator';
 
 @Controller('meta')
 export class MetaController {
-  constructor(private readonly metaService: MetaService) {}
+  private readonly logger = new Logger(MetaController.name);
+
+  constructor(
+    private readonly metaService: MetaService,
+    @Inject(forwardRef(() => MetaInsightsService))
+    private readonly metaInsightsService: MetaInsightsService,
+  ) {}
 
   @Get('connect')
   @UsePipes(ValidationPipe)
@@ -38,6 +48,18 @@ export class MetaController {
   @UsePipes(ValidationPipe)
   async callback(@Query() query: MetaCallbackDto, @Res() res: Response) {
     const payload = await this.metaService.processCallback(query);
+
+    if (payload.linked && payload.workspace_id) {
+      this.metaInsightsService
+        .backfillWorkspaceHistory(payload.workspace_id)
+        .catch((error: unknown) => {
+          this.logger.error(
+            `Failed to backfill history for workspace ${payload.workspace_id}`,
+            error instanceof Error ? error.stack : error,
+          );
+        });
+    }
+
     const { html, nonce } = this.metaService.buildPopupResponse(payload);
 
     res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
