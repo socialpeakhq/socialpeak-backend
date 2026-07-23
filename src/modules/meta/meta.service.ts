@@ -3,12 +3,14 @@ import {
   ForbiddenException,
   HttpException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
-import { Prisma } from '@prisma/client';
+import { MetaConnection, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TokenCipher } from '../../utils/token-cipher';
 import {
@@ -39,6 +41,8 @@ const DEFAULT_SCOPES = [
 
 @Injectable()
 export class MetaService {
+  private readonly logger = new Logger(MetaService.name);
+
   constructor(
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
@@ -168,36 +172,52 @@ export class MetaService {
     return pages.map((page) => this.toWorkspaceLinkedPage(page));
   }
 
-  async getPageInsights(userId: number, workspace_id: number, page_id: number) {
-    await this.assertWorkspaceOwnership(userId, workspace_id);
-    const url = new URL(
-      `https://graph.facebook.com/${this.graphVersion}/${page_id}/insights`,
-    );
-    url.searchParams.set(
-      'metric',
-      'reach,profile_views,total_interactions,likes,comments,views,reposts',
-    );
-    url.searchParams.set('metric_type', 'total_value');
-    url.searchParams.set('period', 'day');
-    try {
-      const requestData = await this.request<MetaInsightsResponse>(url);
-      const { data } = requestData;
+  @Cron(CronExpression.EVERY_DAY_AT_1AM)
+  async refreshExpiringConnections() {
+    const refreshThreshold = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-      const onlyValuesData = data
-        .filter(
-          (item): item is typeof item & { total_value: { value: number } } =>
-            typeof item.total_value?.value === 'number',
-        )
-        .map((item) => ({
-          [item.name]: item.total_value.value,
-        }));
+    const connections = await this.prisma.metaConnection.findMany({
+      where: { user_access_token_expires_at: { lte: refreshThreshold } },
+    });
 
-      return onlyValuesData;
-    } catch {
-      throw new NotFoundException(
-        "Today's insights for selected account are not found",
-      );
+    for (const connection of connections) {
+      try {
+        await this.refreshConnection(connection);
+      } catch (error) {
+        this.logger.error(
+          `Failed to refresh Meta token for workspace ${connection.workspace_id}`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
     }
+  }
+
+  private async refreshConnection(connection: MetaConnection) {
+    const currentToken = this.cipher.decrypt(connection.user_access_token);
+    const refreshed = await this.exchangeForLongLivedToken(currentToken);
+    const newExpiresAt = refreshed.expires_in
+      ? new Date(Date.now() + refreshed.expires_in * 1000)
+      : null;
+
+    const fetchedPages = await this.fetchPages(refreshed.access_token);
+
+    await this.prisma.$transaction([
+      this.prisma.metaConnection.update({
+        where: { id: connection.id },
+        data: {
+          user_access_token: this.cipher.encrypt(refreshed.access_token),
+          user_access_token_expires_at: newExpiresAt,
+        },
+      }),
+      ...fetchedPages.map((page) =>
+        this.prisma.facebookPage.update({
+          where: { page_id: page.page_id },
+          data: {
+            page_access_token: this.cipher.encrypt(page.page_access_token),
+          },
+        }),
+      ),
+    ]);
   }
 
   // PRIVATE SERVICES //

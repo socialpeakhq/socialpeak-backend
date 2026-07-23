@@ -55,13 +55,4 @@ export class MetaController {
   ) {
     return this.metaService.getWorkspaceAccounts(user.sub, workspaceId);
   }
-
-  @Get('workspace/:workspaceId/today-insights/:id')
-  async getTodayInsights(
-    @CurrentUser() user: JwtPayload,
-    @Param('workspaceId', ParseIntPipe) workspaceId: number,
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    return this.metaService.getPageInsights(user.sub, workspaceId, id);
-  }
 }
