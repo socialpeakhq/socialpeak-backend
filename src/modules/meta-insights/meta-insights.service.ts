@@ -57,10 +57,10 @@ export class MetaInsightsService {
 
   async syncOneAccountManually(userId: number, data: ManualInsights) {
     const nowDate = new Date();
-    const { page_id, platform, workspaceId } = data;
+    const { page_id, workspaceId } = data;
     await this.metaService.assertWorkspaceOwnership(userId, workspaceId);
     const latest = this.prisma.insightsSnapshots.aggregate({
-      where: { facebook_page_id: page_id, platform: platform },
+      where: { facebook_page_id: page_id },
       _max: { created_at: true },
     });
 
@@ -275,8 +275,14 @@ export class MetaInsightsService {
 
     url.searchParams.set('metric', metrics);
     url.searchParams.set('period', 'day');
-    url.searchParams.set('since', Math.floor(since.getTime() / 1000).toString());
-    url.searchParams.set('until', Math.floor(until.getTime() / 1000).toString());
+    url.searchParams.set(
+      'since',
+      Math.floor(since.getTime() / 1000).toString(),
+    );
+    url.searchParams.set(
+      'until',
+      Math.floor(until.getTime() / 1000).toString(),
+    );
     url.searchParams.set('access_token', token);
 
     return await this.request<MetaInsightsResponse>(url);

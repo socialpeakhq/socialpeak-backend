@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsNumber } from 'class-validator';
 
 export class ManualInsights {
   @IsNumber()
@@ -8,8 +8,4 @@ export class ManualInsights {
   @IsNumber()
   @IsNotEmpty()
   page_id!: number;
-
-  @IsNotEmpty()
-  @IsIn(['facebook', 'instagram'])
-  platform!: string;
 }
