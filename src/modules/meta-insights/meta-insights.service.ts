@@ -21,7 +21,7 @@ import { ManualInsights } from './dtos/ManualInsights.dto';
 
 const page_default_metrics = '';
 const page_total_value_metrics =
-  'page_follows,page_views_total,page_post_engagements,page_actions_post_reactions_total';
+  'page_follows,page_views_total,page_post_engagements,page_actions_post_reactions_total,page_total_media_view_unique';
 
 const instagram_default_metrics = 'follower_count';
 const instagram_total_value_metrics =
@@ -143,6 +143,8 @@ export class MetaInsightsService {
       }
     }
   }
+
+  // CLASS PRIVATE HELPER FUNCTIONS //
 
   private async backfillHistory(page: FacebookPage) {
     const token = this.cipher.decrypt(page.page_access_token);
