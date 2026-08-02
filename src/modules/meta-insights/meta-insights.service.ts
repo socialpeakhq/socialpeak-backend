@@ -16,7 +16,7 @@ import { DEFAULT_GRAPH_API_VERSION, MetaService } from '../meta/meta.service';
 import { ConfigService } from '@nestjs/config';
 import { TokenCipher } from '../../utils/token-cipher';
 import { FacebookPage, InsightsSnapshots } from '@prisma/client';
-import { differenceInMinutes, startOfDay, subDays } from 'date-fns';
+import { differenceInMinutes, startOfDay, sub, subDays } from 'date-fns';
 import { ManualInsights } from './dtos/ManualInsights.dto';
 
 const page_default_metrics = '';
@@ -141,6 +141,41 @@ export class MetaInsightsService {
           error instanceof Error ? error.stack : error,
         );
       }
+    }
+  }
+
+  async getPlatformAudience(
+    userId: number,
+    workspaceId: number,
+    pageId: number,
+    platform: string,
+    date: string,
+  ) {
+    await this.metaService.assertWorkspaceOwnership(userId, workspaceId);
+    const maxCapturedAtDate = startOfDay(
+      sub(new Date(), {
+        days: date === '7d' ? 7 : date === '30d' ? 30 : 90,
+      }),
+    );
+
+    if (maxCapturedAtDate) {
+      try {
+        const filteredData = await this.prisma.insightsSnapshots.findMany({
+          where: {
+            facebook_page_id: pageId,
+            platform: platform,
+            captured_at: {
+              gte: maxCapturedAtDate,
+            },
+          },
+        });
+
+        return filteredData;
+      } catch (error) {
+        throw new BadRequestException(error);
+      }
+    } else {
+      throw new BadRequestException('Dates do not exist');
     }
   }
 

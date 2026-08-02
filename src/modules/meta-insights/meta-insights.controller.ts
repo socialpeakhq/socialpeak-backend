@@ -31,4 +31,21 @@ export class MetaInsightsController {
       workspaceId: workspaceId,
     });
   }
+
+  @Get('/insights/audience/:workspaceId/:pageId/:platform/:date')
+  getPlatformAudience(
+    @CurrentUser() user: JwtPayload,
+    @Param('workspaceId', ParseIntPipe) workspaceId: number,
+    @Param('pageId', ParseIntPipe) pageId: number,
+    @Param('platform') platform: string,
+    @Param('date') date: string,
+  ) {
+    return this.metaInsightsService.getPlatformAudience(
+      user.sub,
+      workspaceId,
+      pageId,
+      platform,
+      date,
+    );
+  }
 }
