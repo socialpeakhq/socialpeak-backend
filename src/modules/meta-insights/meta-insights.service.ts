@@ -164,6 +164,10 @@ export class MetaInsightsService {
           where: {
             facebook_page_id: pageId,
             platform: platform,
+            metric:
+              platform === 'instagram'
+                ? 'reach'
+                : 'page_total_media_view_unique',
             captured_at: {
               gte: maxCapturedAtDate,
             },
