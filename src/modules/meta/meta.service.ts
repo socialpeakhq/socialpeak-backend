@@ -10,7 +10,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
-import { MetaConnection, Prisma } from '@prisma/client';
+import { FacebookPage, MetaConnection, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TokenCipher } from '../../utils/token-cipher';
 import {
@@ -257,8 +257,9 @@ export class MetaService {
       ? workspace.connected_accounts
       : [...(workspace?.connected_accounts ?? []), 'meta'];
 
+    let upsertResults: unknown[];
     try {
-      await this.prisma.$transaction([
+      upsertResults = await this.prisma.$transaction([
         this.prisma.workspace.update({
           where: { workspace_id: workspaceId },
           data: { connected_accounts: connectedAccounts },
@@ -318,9 +319,12 @@ export class MetaService {
       throw error;
     }
 
+    const upsertedPages = upsertResults.slice(2) as FacebookPage[];
+
     return {
       workspace_id: workspaceId,
-      pages: fetchedPages.map((page) => ({
+      pages: fetchedPages.map((page, index) => ({
+        facebook_page_id: upsertedPages[index].id,
         page_id: page.page_id,
         page_name: page.page_name,
         instagram_account: page.instagram_account,
@@ -330,6 +334,7 @@ export class MetaService {
   }
 
   private toWorkspaceLinkedPage(page: {
+    id: number;
     page_id: string;
     page_name: string;
     instagram_account_id: string | null;
@@ -339,6 +344,7 @@ export class MetaService {
     updated_at: Date;
   }): WorkspaceLinkedPage {
     return {
+      facebook_page_id: page.id,
       page_id: page.page_id,
       page_name: page.page_name,
       instagram_account: page.instagram_account_id

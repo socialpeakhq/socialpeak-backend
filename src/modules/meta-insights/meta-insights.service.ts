@@ -172,6 +172,9 @@ export class MetaInsightsService {
               gte: maxCapturedAtDate,
             },
           },
+          orderBy: {
+            captured_at: 'asc',
+          },
         });
 
         return filteredData;

@@ -58,6 +58,7 @@ export interface WorkspaceLinkedPage {
   page_name: string;
   instagram_account: LinkedInstagramAccount | null;
   updated_at: Date;
+  facebook_page_id: number;
 }
 
 export interface MetaLinkResult {
