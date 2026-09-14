@@ -167,7 +167,7 @@ export class MetaInsightsService {
             metric:
               platform === 'instagram'
                 ? 'reach'
-                : 'page_total_media_view_unique',
+                : 'page_total_media _view_unique',
             captured_at: {
               gte: maxCapturedAtDate,
             },
