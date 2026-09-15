@@ -1,6 +1,9 @@
 import {
   Body,
   Controller,
+  Get,
+  Param,
+  ParseIntPipe,
   Post,
   UsePipes,
   ValidationPipe,
@@ -26,5 +29,13 @@ export class PostsController {
   @Post('media/upload-media')
   postUploadMedia(@Body() media: string[]) {
     return this.postsService.uploadImagesToPublicUrl(media);
+  }
+
+  @Get('list/:workspaceId')
+  async getWorkspacePosts(
+    @CurrentUser() user: JwtPayload,
+    @Param('workspaceId', ParseIntPipe) workspaceId: number,
+  ) {
+    return this.postsService.getWorkspacePosts(user.sub, workspaceId);
   }
 }

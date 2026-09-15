@@ -36,6 +36,8 @@ const DEFAULT_SCOPES = [
   'pages_read_engagement',
   'instagram_manage_insights',
   'business_management',
+  'pages_manage_posts',
+  'instagram_content_publish',
 ].join(',');
 
 @Injectable()

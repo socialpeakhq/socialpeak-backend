@@ -3,6 +3,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FacebookPage } from '@prisma/client';
 import { createHash } from 'crypto';
+import { imageSize } from 'image-size';
+import sharp from 'sharp';
 import { CreatePostDto } from './dtos/CreatePost.dto';
 import { TokenCipher } from '../../../utils/token-cipher';
 import {
@@ -18,6 +20,9 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
+
+const MIN_ASPECT_RATIO = 0.8;
+const MAX_ASPECT_RATIO = 1.91;
 
 @Injectable()
 export class PostsService {
@@ -62,7 +67,19 @@ export class PostsService {
           throw new BadRequestException(`Unsupported image type: ${mimeType}`);
         }
 
-        const buffer = Buffer.from(base64Data, 'base64');
+        let buffer: Buffer = Buffer.from(base64Data, 'base64');
+
+        const { width, height } = imageSize(buffer);
+        const aspectRatio = width / height;
+        if (aspectRatio < MIN_ASPECT_RATIO || aspectRatio > MAX_ASPECT_RATIO) {
+          buffer = await this.padToSupportedAspectRatio(
+            buffer,
+            width,
+            height,
+            mimeType,
+          );
+        }
+
         const key = `${createHash('sha1').update(buffer).digest('hex')}.${extension}`;
 
         try {
@@ -141,7 +158,65 @@ export class PostsService {
     });
   }
 
+  async getWorkspacePosts(userId: number, workspaceId: number) {
+    await this.metaService.assertWorkspaceOwnership(userId, workspaceId);
+
+    const posts = await this.prisma.post.findMany({
+      where: { workspace_id: workspaceId },
+      include: { targets: true },
+    });
+
+    if (!posts) {
+      return new BadRequestException('Posts not found for this workspace');
+    }
+
+    return posts;
+  }
+
   // PRIVATE FUNCTIONS //
+
+  private async padToSupportedAspectRatio(
+    buffer: Buffer,
+    width: number,
+    height: number,
+    mimeType: string,
+  ): Promise<Buffer> {
+    let targetWidth = width;
+    let targetHeight = height;
+
+    const aspectRatio = width / height;
+    if (aspectRatio < MIN_ASPECT_RATIO) {
+      targetWidth = Math.ceil(height * MIN_ASPECT_RATIO);
+    } else if (aspectRatio > MAX_ASPECT_RATIO) {
+      targetHeight = Math.ceil(width / MAX_ASPECT_RATIO);
+    }
+
+    const extraWidth = targetWidth - width;
+    const extraHeight = targetHeight - height;
+    const left = Math.floor(extraWidth / 2);
+    const right = extraWidth - left;
+    const top = Math.floor(extraHeight / 2);
+    const bottom = extraHeight - top;
+
+    const image = sharp(buffer).extend({
+      top,
+      bottom,
+      left,
+      right,
+      background: { r: 255, g: 255, b: 255 },
+    });
+
+    switch (mimeType) {
+      case 'image/png':
+        return image.png().toBuffer();
+      case 'image/webp':
+        return image.webp().toBuffer();
+      case 'image/gif':
+        return image.gif().toBuffer();
+      default:
+        return image.jpeg().toBuffer();
+    }
+  }
 
   private async publishToFacebook(
     page: FacebookPage,
