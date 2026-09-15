@@ -5,7 +5,7 @@ import { PostsService } from './posts.service';
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
-  @Post('/posts/media/upload-media')
+  @Post('media/upload-media')
   postUploadMedia(@Body() media: string[]) {
     return this.postsService.uploadImagesToPublicUrl(media);
   }
