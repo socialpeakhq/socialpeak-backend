@@ -28,6 +28,7 @@ model Workspace {
   workspace_owner    User            @relation(fields: [owner_id], references: [id])
   meta_connection    MetaConnection?
   facebook_pages     FacebookPage[]
+  posts              Post[]
 }
 
 model MetaConnection {
@@ -56,6 +57,7 @@ model FacebookPage {
   created_at                    DateTime            @default(now())
   updated_at                    DateTime            @updatedAt
   insightsSnapshots             InsightsSnapshots[]
+  posts                         Post[]
 
   @@index([workspace_id])
 }
@@ -72,4 +74,27 @@ model InsightsSnapshots {
 
   @@unique([facebook_page_id, platform, metric, captured_at])
   @@index([facebook_page_id, captured_at])
+}
+
+model Post {
+  id               Int          @id @default(autoincrement())
+  workspace_id     Int
+  workspace        Workspace    @relation(fields: [workspace_id], references: [workspace_id])
+  facebook_page_id Int
+  facebook_page    FacebookPage @relation(fields: [facebook_page_id], references: [id])
+  caption          String
+  media_urls       String[]     @default([])
+  created_at       DateTime     @default(now())
+  targets          PostTarget[]
+}
+
+model PostTarget {
+  id               Int       @id @default(autoincrement())
+  post_id          Int
+  post             Post?     @relation(fields: [post_id], references: [id])
+  platform         String
+  status           String
+  external_post_id String?
+  error_message    String?
+  published_at     DateTime?
 }
