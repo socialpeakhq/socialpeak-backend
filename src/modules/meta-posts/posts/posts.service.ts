@@ -166,10 +166,6 @@ export class PostsService {
       include: { targets: true },
     });
 
-    if (!posts) {
-      return new BadRequestException('Posts not found for this workspace');
-    }
-
     return posts;
   }
 
