@@ -219,6 +219,17 @@ export class PostsService {
     dto: CreatePostDto,
   ): Promise<string> {
     const token = this.cipher.decrypt(page.page_access_token);
+
+    if (!dto.media_urls?.length) {
+      const url = new URL(
+        `https://graph.facebook.com/${this.graphVersion}/${page.page_id}/feed`,
+      );
+      url.searchParams.set('message', dto.caption);
+      url.searchParams.set('access_token', token);
+      const result = await this.request<{ id: string }>(url, 'POST');
+      return result.id;
+    }
+
     const url = new URL(
       `https://graph.facebook.com/${this.graphVersion}/${page.page_id}/photos`,
     );
@@ -236,6 +247,12 @@ export class PostsService {
     page: FacebookPage,
     dto: CreatePostDto,
   ): Promise<string> {
+    if (!dto.media_urls?.length) {
+      throw new BadRequestException(
+        'Instagram requires at least one image or video',
+      );
+    }
+
     const token = this.cipher.decrypt(page.page_access_token);
 
     const containerUrl = new URL(
