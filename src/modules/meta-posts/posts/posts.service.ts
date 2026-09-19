@@ -443,6 +443,44 @@ export class PostsService {
 
   // PUBLISH FACEBOOK FUNCTIONS //
 
+  // PUBLISH INSTAGRAM FUNCTIONS //
+  private async createContainer(
+    page: FacebookPage,
+    dto: Record<string, number | string | string[] | boolean>,
+    token: string,
+  ) {
+    const url = new URL(
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.instagram_account_id}/media`,
+    );
+
+    Object.keys(dto).map((key: string) =>
+      url.searchParams.set(key, String(dto[key])),
+    );
+
+    url.searchParams.set('access_token', token);
+
+    const response = await this.request<{ id: string }>(url, 'POST');
+    return response.id;
+  }
+
+  private async publishInstagramSinglePhoto(
+    page: FacebookPage,
+    containerId: string,
+    token: string,
+  ) {
+    const url = new URL(
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/media_publish`,
+    );
+
+    url.searchParams.set('creation_id', containerId);
+    url.searchParams.set('access_token', token);
+
+    const response = await this.request<{ id: string }>(url, 'POST');
+    return response.id;
+  }
+
+  // PUBLISH INSTAGRAM FUNCTIONS //
+
   // HELPER FUNCTIONS //
   private async request<T>(
     url: URL,
