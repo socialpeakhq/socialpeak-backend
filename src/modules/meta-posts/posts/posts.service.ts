@@ -285,26 +285,14 @@ export class PostsService {
     const token = this.cipher.decrypt(page.page_access_token);
 
     if (!dto.media_urls?.length) {
-      const url = new URL(
-        `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/feed`,
-      );
-      url.searchParams.set('message', dto.caption);
-      url.searchParams.set('access_token', token);
-      const result = await this.request<{ id: string }>(url, 'POST');
-      return result.id;
+      return this.publishTextLinkPosts(page, dto, token);
     }
 
-    const url = new URL(
-      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/photos`,
-    );
-    url.searchParams.set('url', dto.media_urls[0]);
-    url.searchParams.set('caption', dto.caption);
-    url.searchParams.set('access_token', token);
-    const result = await this.request<{ id: string; post_id: string }>(
-      url,
-      'POST',
-    );
-    return result.post_id;
+    if (dto.media_urls.length === 1) {
+      return this.publishSinglePhotoPost(page, dto, token);
+    }
+
+    return this.publishCarouselPost(page, dto, token);
   }
 
   private async publishToInstagram(
