@@ -13,6 +13,7 @@ import {
 } from '../../meta/meta.service';
 import { MetaGraphErrorResponse } from '../../meta/meta.types';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CreateVideoPost } from './dtos/CreateVideoPost.dto';
 
 const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -152,6 +153,69 @@ export class PostsService {
       }),
     );
 
+    return this.prisma.post.findUnique({
+      where: { id: post.id },
+      include: { targets: true },
+    });
+  }
+
+  async createVideoPost(userId: number, dto: CreateVideoPost) {
+    await this.metaService.assertWorkspaceOwnership(userId, dto.workspace_id);
+
+    const page = await this.prisma.facebookPage.findFirstOrThrow({
+      where: { workspace_id: dto.workspace_id },
+    });
+
+    const token = this.cipher.decrypt(page.page_access_token);
+
+    const post = await this.prisma.post.create({
+      data: {
+        workspace_id: dto.workspace_id,
+        caption: dto.description,
+        created_at: new Date(),
+        facebook_page_id: page.id,
+        media_urls: [dto.file_url],
+        targets: {
+          create: dto.platforms.map((platform) => ({
+            platform,
+            status: 'pending',
+          })),
+        },
+      },
+      include: {
+        targets: true,
+      },
+    });
+
+    const results = await Promise.allSettled(
+      dto.platforms.map(async (platform) =>
+        platform === 'facebook'
+          ? this.publishVideoPost(page, dto, token)
+          : null,
+      ),
+    );
+
+    await Promise.all(
+      results.map((result, index) => {
+        const platform = dto.platforms[index];
+        return result.status === 'fulfilled'
+          ? this.prisma.postTarget.update({
+              where: { post_id_platform: { post_id: post.id, platform } },
+              data: {
+                status: 'published',
+                external_post_id: result.value,
+                published_at: new Date(),
+              },
+            })
+          : this.prisma.postTarget.update({
+              where: { post_id_platform: { post_id: post.id, platform } },
+              data: {
+                status: 'failed',
+                error_message: String(result.reason),
+              },
+            });
+      }),
+    );
     return this.prisma.post.findUnique({
       where: { id: post.id },
       include: { targets: true },
@@ -342,6 +406,27 @@ export class PostsService {
     return result.id;
   }
 
+  private async publishVideoPost(
+    page: FacebookPage,
+    dto: CreateVideoPost,
+    token: string,
+  ) {
+    const url = new URL(
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/videos`,
+    );
+    url.searchParams.set('file_url', dto.file_url);
+    url.searchParams.set('description', dto.description);
+    url.searchParams.set('title', dto.title);
+    url.searchParams.set('no_story', String(dto.no_story));
+    url.searchParams.set('published', String(dto.published));
+    url.searchParams.set('access_token', token);
+    if (dto.isScheduled)
+      url.searchParams.set('scheduled_publish_time', String(dto.timestamp));
+
+    const result = await this.request<{ id: string }>(url, 'POST');
+
+    return result.id;
+  }
   // PUBLISH FACEBOOK FUNCTIONS //
 
   // HELPER FUNCTIONS //

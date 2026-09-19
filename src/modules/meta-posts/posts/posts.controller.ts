@@ -12,6 +12,7 @@ import { PostsService } from './posts.service';
 import { CurrentUser } from '../../../decorators/current-user.decorator';
 import type { JwtPayload } from '../../../decorators/current-user.decorator';
 import { CreatePostDto } from './dtos/CreatePost.dto';
+import { CreateVideoPost } from './dtos/CreateVideoPost.dto';
 
 @Controller('posts')
 export class PostsController {
@@ -24,6 +25,15 @@ export class PostsController {
     @Body() dto: CreatePostDto,
   ) {
     return this.postsService.createPost(user.sub, dto);
+  }
+
+  @Post('video')
+  @UsePipes(ValidationPipe)
+  async createVideoPost(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateVideoPost,
+  ) {
+    return this.postsService.createVideoPost(user.sub, dto);
   }
 
   @Post('media/upload-media')
