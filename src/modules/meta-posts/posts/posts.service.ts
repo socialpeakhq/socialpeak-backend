@@ -190,7 +190,7 @@ export class PostsService {
     const results = await Promise.allSettled(
       dto.platforms.map(async (platform) =>
         platform === 'facebook'
-          ? this.publishVideoPost(page, dto, token)
+          ? this.publishFacebookVideoPost(page, dto, token)
           : null,
       ),
     );
@@ -285,14 +285,14 @@ export class PostsService {
     const token = this.cipher.decrypt(page.page_access_token);
 
     if (!dto.media_urls?.length) {
-      return this.publishTextLinkPosts(page, dto, token);
+      return this.publishFacebookTextLinkPosts(page, dto, token);
     }
 
     if (dto.media_urls.length === 1) {
-      return this.publishSinglePhotoPost(page, dto, token);
+      return this.publishFacebookSinglePhotoPost(page, dto, token);
     }
 
-    return this.publishCarouselPost(page, dto, token);
+    return this.publishFacebookCarouselPost(page, dto, token);
   }
 
   private async publishToInstagram(
@@ -326,7 +326,7 @@ export class PostsService {
 
   // PUBLISH FACEBOOK FUNCTIONS //
 
-  private async publishTextLinkPosts(
+  private async publishFacebookTextLinkPosts(
     page: FacebookPage,
     dto: CreatePostDto,
     token: string,
@@ -344,7 +344,7 @@ export class PostsService {
     return result.id;
   }
 
-  private async publishSinglePhotoPost(
+  private async publishFacebookSinglePhotoPost(
     page: FacebookPage,
     dto: CreatePostDto,
     token: string,
@@ -363,7 +363,7 @@ export class PostsService {
     return result.post_id;
   }
 
-  private async publishCarouselPost(
+  private async publishFacebookCarouselPost(
     page: FacebookPage,
     dto: CreatePostDto,
     token: string,
@@ -394,7 +394,7 @@ export class PostsService {
     return result.id;
   }
 
-  private async publishVideoPost(
+  private async publishFacebookVideoPost(
     page: FacebookPage,
     dto: CreateVideoPost,
     token: string,
@@ -415,6 +415,32 @@ export class PostsService {
 
     return result.id;
   }
+
+  private async publishFacebookStory(
+    page: FacebookPage,
+    dto: CreatePostDto,
+    token: string,
+  ) {
+    const photosUrl = new URL(
+      `${this.config.get('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/photos`,
+    );
+
+    photosUrl.searchParams.set('url', dto.media_urls[0]);
+    photosUrl.searchParams.set('published', 'false');
+    photosUrl.searchParams.set('access_token', token);
+
+    const result = await this.request<{ id: string }>(photosUrl, 'POST');
+
+    const publishUrl = new URL(
+      `${this.config.get('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/photo_stories`,
+    );
+    publishUrl.searchParams.set('photo_id', result.id);
+    publishUrl.searchParams.set('access_token', token);
+    const response = await this.request<{ id: string }>(publishUrl, 'POST');
+
+    return response.id;
+  }
+
   // PUBLISH FACEBOOK FUNCTIONS //
 
   // HELPER FUNCTIONS //
