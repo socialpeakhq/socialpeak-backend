@@ -1,4 +1,12 @@
-import { IsArray, IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreatePostDto {
   @IsInt()
@@ -10,7 +18,21 @@ export class CreatePostDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  media_urls?: string[];
+  media_urls!: string[];
+
+  @IsOptional()
+  @IsString()
+  link!: string;
+
+  @IsBoolean()
+  published: boolean = true;
+
+  @IsBoolean()
+  isScheduled: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  timestamp!: number;
 
   @IsArray()
   @IsIn(['facebook', 'instagram'], { each: true })

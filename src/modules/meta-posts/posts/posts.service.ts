@@ -222,7 +222,7 @@ export class PostsService {
 
     if (!dto.media_urls?.length) {
       const url = new URL(
-        `https://graph.facebook.com/${this.graphVersion}/${page.page_id}/feed`,
+        `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/feed`,
       );
       url.searchParams.set('message', dto.caption);
       url.searchParams.set('access_token', token);
@@ -231,7 +231,7 @@ export class PostsService {
     }
 
     const url = new URL(
-      `https://graph.facebook.com/${this.graphVersion}/${page.page_id}/photos`,
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/photos`,
     );
     url.searchParams.set('url', dto.media_urls[0]);
     url.searchParams.set('caption', dto.caption);
@@ -256,7 +256,7 @@ export class PostsService {
     const token = this.cipher.decrypt(page.page_access_token);
 
     const containerUrl = new URL(
-      `https://graph.facebook.com/${this.graphVersion}/${page.instagram_account_id}/media`,
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.instagram_account_id}/media`,
     );
     containerUrl.searchParams.set('image_url', dto.media_urls[0]);
     containerUrl.searchParams.set('caption', dto.caption);
@@ -264,13 +264,85 @@ export class PostsService {
     const container = await this.request<{ id: string }>(containerUrl, 'POST');
 
     const publishUrl = new URL(
-      `https://graph.facebook.com/${this.graphVersion}/${page.instagram_account_id}/media_publish`,
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.instagram_account_id}/media_publish`,
     );
     publishUrl.searchParams.set('creation_id', container.id);
     publishUrl.searchParams.set('access_token', token);
     const published = await this.request<{ id: string }>(publishUrl, 'POST');
     return published.id;
   }
+
+  // PUBLISH FACEBOOK FUNCTIONS //
+
+  private async publishTextLinkPosts(
+    page: FacebookPage,
+    dto: CreatePostDto,
+    token: string,
+  ) {
+    const url = new URL(
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/feed`,
+    );
+    url.searchParams.set('message', dto.caption);
+    if (dto.link) url.searchParams.set('link', dto.link);
+    url.searchParams.set('access_token', token);
+    url.searchParams.set('published', String(dto.published));
+
+    const result = await this.request<{ id: string }>(url, 'POST');
+
+    return result.id;
+  }
+
+  private async publishSinglePhotoPost(
+    page: FacebookPage,
+    dto: CreatePostDto,
+    token: string,
+  ) {
+    const url = new URL(
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/photos`,
+    );
+    url.searchParams.set('url', dto.media_urls[0]);
+    url.searchParams.set('caption', dto.caption);
+    url.searchParams.set('access_token', token);
+    const result = await this.request<{ id: string; post_id: string }>(
+      url,
+      'POST',
+    );
+
+    return result.post_id;
+  }
+
+  private async publishCarouselPost(
+    page: FacebookPage,
+    dto: CreatePostDto,
+    token: string,
+  ) {
+    const carouselData: { media_fbid: string }[] = [];
+
+    await Promise.all(
+      dto.media_urls.map(async (mediaUrl: string) => {
+        const photoUrl = new URL(
+          `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/photos`,
+        );
+        photoUrl.searchParams.set('url', mediaUrl);
+        photoUrl.searchParams.set('published', 'false');
+        photoUrl.searchParams.set('access_token', token);
+        const result = await this.request<{ id: string }>(photoUrl, 'POST');
+        carouselData.push({ media_fbid: result.id });
+      }),
+    );
+
+    const publishUrl = new URL(
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/feed`,
+    );
+    publishUrl.searchParams.set('message', dto.caption);
+    publishUrl.searchParams.set('attached_media', JSON.stringify(carouselData));
+    publishUrl.searchParams.set('access_token', token);
+
+    const result = await this.request<{ id: string }>(publishUrl, 'POST');
+    return result.id;
+  }
+
+  // PUBLISH FACEBOOK FUNCTIONS //
 
   // HELPER FUNCTIONS //
   private async request<T>(
