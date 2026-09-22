@@ -82,6 +82,7 @@ model Post {
   workspace        Workspace    @relation(fields: [workspace_id], references: [workspace_id])
   facebook_page_id Int
   facebook_page    FacebookPage @relation(fields: [facebook_page_id], references: [id])
+  type             String
   caption          String
   media_urls       String[]     @default([])
   created_at       DateTime     @default(now())

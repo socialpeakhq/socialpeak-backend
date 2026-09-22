@@ -36,6 +36,15 @@ export class PostsController {
     return this.postsService.createVideoPost(user.sub, dto);
   }
 
+  @Post('story')
+  @UsePipes(ValidationPipe)
+  async createStory(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreatePostDto,
+  ) {
+    return this.postsService.createStory(user.sub, dto);
+  }
+
   @Post('media/upload-media')
   postUploadMedia(@Body() media: string[]) {
     return this.postsService.uploadImagesToPublicUrl(media);

@@ -114,6 +114,7 @@ export class PostsService {
         caption: dto.caption,
         facebook_page_id: page.id,
         media_urls: dto.media_urls,
+        type: 'post',
         targets: {
           create: dto.platforms.map((platform) => ({
             platform,
@@ -175,6 +176,7 @@ export class PostsService {
         created_at: new Date(),
         facebook_page_id: page.id,
         media_urls: [dto.file_url],
+        type: 'reel',
         targets: {
           create: dto.platforms.map((platform) => ({
             platform,
@@ -216,6 +218,72 @@ export class PostsService {
             });
       }),
     );
+    return this.prisma.post.findUnique({
+      where: { id: post.id },
+      include: { targets: true },
+    });
+  }
+
+  async createStory(userId: number, dto: CreatePostDto) {
+    await this.metaService.assertWorkspaceOwnership(userId, dto.workspace_id);
+
+    const page = await this.prisma.facebookPage.findFirstOrThrow({
+      where: { workspace_id: dto.workspace_id },
+    });
+
+    const token = this.cipher.decrypt(page.page_access_token);
+
+    const post = await this.prisma.post.create({
+      data: {
+        media_urls: [dto.media_urls[0]],
+        workspace_id: dto.workspace_id,
+        facebook_page_id: page.id,
+        type: 'story',
+        caption: '',
+        targets: {
+          create: dto.platforms.map((platform) => ({
+            platform,
+            status: 'pending',
+          })),
+        },
+      },
+      include: {
+        targets: true,
+      },
+    });
+
+    const results = await Promise.allSettled(
+      dto.platforms.map(async (platform) =>
+        platform === 'facebook'
+          ? this.publishFacebookStory(page, dto, token)
+          : null,
+      ),
+    );
+
+    await Promise.all(
+      results.map((result, index) => {
+        const platform = dto.platforms[index];
+        return result.status === 'fulfilled'
+          ? this.prisma.postTarget.update({
+              where: {
+                post_id_platform: { platform: platform, post_id: post.id },
+              },
+              data: {
+                status: 'published',
+                external_post_id: result.value,
+                published_at: new Date(),
+              },
+            })
+          : this.prisma.postTarget.update({
+              where: { post_id_platform: { platform, post_id: post.id } },
+              data: {
+                status: 'failed',
+                error_message: String(result.reason),
+              },
+            });
+      }),
+    );
+
     return this.prisma.post.findUnique({
       where: { id: post.id },
       include: { targets: true },
