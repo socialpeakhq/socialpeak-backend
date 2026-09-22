@@ -195,7 +195,7 @@ export class PostsService {
         if (platform === 'facebook') {
           return this.publishFacebookVideoPost(page, dto, token);
         }
-        await this.publishInstagramVideoReel(
+        await this.createInstagramVideoContainer(
           page,
           post.id,
           {
@@ -273,13 +273,18 @@ export class PostsService {
       dto.platforms.map(async (platform) =>
         platform === 'facebook'
           ? this.publishFacebookStory(page, dto, token)
-          : null,
+          : this.publishInstagramStory(page, post.id, dto, token),
       ),
     );
 
     await Promise.all(
-      results.map((result, index) => {
+      results.map(async (result, index) => {
         const platform = dto.platforms[index];
+
+        if (result.status === 'fulfilled' && result.value === null) {
+          return null;
+        }
+
         return result.status === 'fulfilled'
           ? this.prisma.postTarget.update({
               where: {
@@ -392,21 +397,15 @@ export class PostsService {
 
     const token = this.cipher.decrypt(page.page_access_token);
 
-    const containerUrl = new URL(
-      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.instagram_account_id}/media`,
-    );
-    containerUrl.searchParams.set('image_url', dto.media_urls[0]);
-    containerUrl.searchParams.set('caption', dto.caption);
-    containerUrl.searchParams.set('access_token', token);
-    const container = await this.request<{ id: string }>(containerUrl, 'POST');
+    if (dto.media_urls.length === 1) {
+      return this.publishInstagramSinglePhoto(
+        page,
+        { image_url: dto.media_urls[0], caption: dto.caption },
+        token,
+      );
+    }
 
-    const publishUrl = new URL(
-      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.instagram_account_id}/media_publish`,
-    );
-    publishUrl.searchParams.set('creation_id', container.id);
-    publishUrl.searchParams.set('access_token', token);
-    const published = await this.request<{ id: string }>(publishUrl, 'POST');
-    return published.id;
+    return this.publishInstagramCarousel(page, dto, token);
   }
 
   // PUBLISH FACEBOOK FUNCTIONS //
@@ -586,6 +585,40 @@ export class PostsService {
     return publishId;
   }
 
+  private async publishInstagramCarousel(
+    page: FacebookPage,
+    dto: CreatePostDto,
+    token: string,
+  ): Promise<string> {
+    if (!page.instagram_account_id) {
+      throw new BadRequestException(
+        'This page has no linked Instagram account',
+      );
+    }
+
+    const childrenIds = await Promise.all(
+      dto.media_urls.map((mediaUrl) =>
+        this.createContainer(
+          page,
+          { image_url: mediaUrl, is_carousel_item: true },
+          token,
+        ),
+      ),
+    );
+
+    const containerId = await this.createContainer(
+      page,
+      { media_type: 'CAROUSEL', children: childrenIds, caption: dto.caption },
+      token,
+    );
+
+    return this.publishInstagramMedia(
+      page.instagram_account_id,
+      token,
+      containerId,
+    );
+  }
+
   private async getContainerStatus(
     containerId: string,
     token: string,
@@ -603,7 +636,10 @@ export class PostsService {
     return status_code;
   }
 
-  private async publishInstagramVideoReel(
+  // Used for any Instagram media_type that requires container processing
+  // time (REELS, STORIES videos): creates the container and hands it off
+  // to processPendingInstagramContainers() below instead of polling inline.
+  private async createInstagramVideoContainer(
     page: FacebookPage,
     postId: number,
     dto: Record<string, number | string | string[] | boolean>,
@@ -625,6 +661,41 @@ export class PostsService {
         container_created_at: new Date(),
       },
     });
+  }
+
+  private isVideoUrl(url: string): boolean {
+    return /\.(mp4|mov|m4v|webm|avi|mkv)(\?.*)?$/i.test(url);
+  }
+
+  private async publishInstagramStory(
+    page: FacebookPage,
+    postId: number,
+    dto: CreatePostDto,
+    token: string,
+  ): Promise<string | null> {
+    if (!page.instagram_account_id) {
+      throw new BadRequestException(
+        'This page has no linked Instagram account',
+      );
+    }
+
+    const mediaUrl = dto.media_urls[0];
+
+    if (this.isVideoUrl(mediaUrl)) {
+      await this.createInstagramVideoContainer(
+        page,
+        postId,
+        { video_url: mediaUrl, media_type: 'STORIES' },
+        token,
+      );
+      return null;
+    }
+
+    return this.publishInstagramSinglePhoto(
+      page,
+      { image_url: mediaUrl, media_type: 'STORIES' },
+      token,
+    );
   }
 
   @Cron(CronExpression.EVERY_30_SECONDS)
