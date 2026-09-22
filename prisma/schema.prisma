@@ -90,14 +90,16 @@ model Post {
 }
 
 model PostTarget {
-  id               Int       @id @default(autoincrement())
-  post_id          Int
-  post             Post      @relation(fields: [post_id], references: [id])
-  platform         String // 'facebook' | 'instagram'
-  status           String // 'pending' | 'processing' | 'published' | 'failed'
-  external_post_id String?
-  error_message    String?
-  published_at     DateTime?
+  id                   Int       @id @default(autoincrement())
+  post_id              Int
+  post                 Post      @relation(fields: [post_id], references: [id])
+  platform             String // 'facebook' | 'instagram'
+  status               String // 'pending' | 'processing' | 'published' | 'failed'
+  external_post_id     String?
+  error_message        String?
+  published_at         DateTime?
+  container_id         String?
+  container_created_at DateTime?
 
   @@unique([post_id, platform])
 }

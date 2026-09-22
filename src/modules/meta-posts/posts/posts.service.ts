@@ -1,5 +1,6 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { FacebookPage } from '@prisma/client';
 import { createHash } from 'crypto';
@@ -136,7 +137,7 @@ export class PostsService {
     );
 
     await Promise.all(
-      results.map((result, index) => {
+      results.map(async (result, index) => {
         const platform = dto.platforms[index];
         return result.status === 'fulfilled'
           ? this.prisma.postTarget.update({
@@ -190,16 +191,32 @@ export class PostsService {
     });
 
     const results = await Promise.allSettled(
-      dto.platforms.map(async (platform) =>
-        platform === 'facebook'
-          ? this.publishFacebookVideoPost(page, dto, token)
-          : null,
-      ),
+      dto.platforms.map(async (platform) => {
+        if (platform === 'facebook') {
+          return this.publishFacebookVideoPost(page, dto, token);
+        }
+        await this.publishInstagramVideoReel(
+          page,
+          post.id,
+          {
+            video_url: dto.file_url,
+            caption: dto.description,
+            media_type: 'REELS',
+          },
+          token,
+        );
+        return null;
+      }),
     );
 
     await Promise.all(
-      results.map((result, index) => {
+      results.map(async (result, index) => {
         const platform = dto.platforms[index];
+
+        if (result.status === 'fulfilled' && result.value === null) {
+          return null;
+        }
+
         return result.status === 'fulfilled'
           ? this.prisma.postTarget.update({
               where: { post_id_platform: { post_id: post.id, platform } },
@@ -531,13 +548,13 @@ export class PostsService {
     return response.id;
   }
 
-  private async publishInstagramSinglePhoto(
-    page: FacebookPage,
-    containerId: string,
+  private async publishInstagramMedia(
+    instagramAccountId: string,
     token: string,
+    containerId: string,
   ) {
     const url = new URL(
-      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/media_publish`,
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${instagramAccountId}/media_publish`,
     );
 
     url.searchParams.set('creation_id', containerId);
@@ -545,6 +562,129 @@ export class PostsService {
 
     const response = await this.request<{ id: string }>(url, 'POST');
     return response.id;
+  }
+
+  private async publishInstagramSinglePhoto(
+    page: FacebookPage,
+    dto: Record<string, number | string | string[] | boolean>,
+    token: string,
+  ) {
+    if (!page.instagram_account_id) {
+      throw new BadRequestException(
+        'This page has no linked Instagram account',
+      );
+    }
+
+    const containerId = await this.createContainer(page, dto, token);
+
+    const publishId = await this.publishInstagramMedia(
+      page.instagram_account_id,
+      token,
+      containerId,
+    );
+
+    return publishId;
+  }
+
+  private async getContainerStatus(
+    containerId: string,
+    token: string,
+  ): Promise<string> {
+    const url = new URL(
+      `${this.config.get<string>('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${containerId}`,
+    );
+    url.searchParams.set('fields', 'status_code');
+    url.searchParams.set('access_token', token);
+
+    const { status_code } = await this.request<{ status_code: string }>(
+      url,
+      'GET',
+    );
+    return status_code;
+  }
+
+  private async publishInstagramVideoReel(
+    page: FacebookPage,
+    postId: number,
+    dto: Record<string, number | string | string[] | boolean>,
+    token: string,
+  ): Promise<void> {
+    if (!page.instagram_account_id) {
+      throw new BadRequestException(
+        'This page has no linked Instagram account',
+      );
+    }
+
+    const containerId = await this.createContainer(page, dto, token);
+
+    await this.prisma.postTarget.update({
+      where: { post_id_platform: { post_id: postId, platform: 'instagram' } },
+      data: {
+        status: 'processing',
+        container_id: containerId,
+        container_created_at: new Date(),
+      },
+    });
+  }
+
+  @Cron(CronExpression.EVERY_30_SECONDS)
+  async processPendingInstagramContainers() {
+    const pendingTargets = await this.prisma.postTarget.findMany({
+      where: { status: 'processing', container_id: { not: null } },
+      include: { post: { include: { facebook_page: true } } },
+    });
+
+    await Promise.all(
+      pendingTargets.map(async (target) => {
+        try {
+          const targetWithPage = target as {
+            container_id: string | null;
+            post: { facebook_page: FacebookPage | null };
+          };
+          const { container_id: containerId, post } = targetWithPage;
+          const page = post.facebook_page;
+
+          if (!containerId || !page?.instagram_account_id) {
+            throw new BadRequestException(
+              'Instagram page or container is not available',
+            );
+          }
+
+          const token = this.cipher.decrypt(page.page_access_token);
+          const statusCode = await this.getContainerStatus(containerId, token);
+
+          if (statusCode === 'FINISHED') {
+            const publishId = await this.publishInstagramMedia(
+              page.instagram_account_id,
+              token,
+              containerId,
+            );
+            await this.prisma.postTarget.update({
+              where: { id: target.id },
+              data: {
+                status: 'published',
+                external_post_id: publishId,
+                published_at: new Date(),
+              },
+            });
+          } else if (statusCode === 'ERROR' || statusCode === 'EXPIRED') {
+            await this.prisma.postTarget.update({
+              where: { id: target.id },
+              data: {
+                status: 'failed',
+                error_message: `Instagram container failed to process: ${statusCode}`,
+              },
+            });
+          }
+          // IN_PROGRESS: leave as 'processing', picked up again next tick.
+        } catch (error) {
+          await this.prisma.postTarget.update({
+            where: { id: target.id },
+            data: { status: 'failed', error_message: String(error) },
+          });
+        }
+      }),
+    );
   }
 
   // PUBLISH INSTAGRAM FUNCTIONS //
