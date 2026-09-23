@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -132,13 +135,18 @@ export class PostsService {
       dto.platforms.map((platform) =>
         platform === 'facebook'
           ? this.publishToFacebook(page, dto)
-          : this.publishToInstagram(page, dto),
+          : this.publishToInstagram(page, post.id, dto),
       ),
     );
 
     await Promise.all(
       results.map(async (result, index) => {
         const platform = dto.platforms[index];
+
+        if (result.status === 'fulfilled' && result.value === null) {
+          return null;
+        }
+
         return result.status === 'fulfilled'
           ? this.prisma.postTarget.update({
               where: { post_id_platform: { post_id: post.id, platform } },
@@ -195,7 +203,7 @@ export class PostsService {
         if (platform === 'facebook') {
           return this.publishFacebookVideoPost(page, dto, token);
         }
-        await this.createInstagramVideoContainer(
+        return this.deferInstagramContainer(
           page,
           post.id,
           {
@@ -205,7 +213,6 @@ export class PostsService {
           },
           token,
         );
-        return null;
       }),
     );
 
@@ -387,8 +394,9 @@ export class PostsService {
 
   private async publishToInstagram(
     page: FacebookPage,
+    postId: number,
     dto: CreatePostDto,
-  ): Promise<string> {
+  ): Promise<null> {
     if (!dto.media_urls?.length) {
       throw new BadRequestException(
         'Instagram requires at least one image or video',
@@ -398,14 +406,15 @@ export class PostsService {
     const token = this.cipher.decrypt(page.page_access_token);
 
     if (dto.media_urls.length === 1) {
-      return this.publishInstagramSinglePhoto(
+      return this.deferInstagramContainer(
         page,
+        postId,
         { image_url: dto.media_urls[0], caption: dto.caption },
         token,
       );
     }
 
-    return this.publishInstagramCarousel(page, dto, token);
+    return this.deferInstagramCarousel(page, postId, dto, token);
   }
 
   // PUBLISH FACEBOOK FUNCTIONS //
@@ -563,11 +572,12 @@ export class PostsService {
     return response.id;
   }
 
-  private async publishInstagramSinglePhoto(
+  private async deferInstagramContainer(
     page: FacebookPage,
+    postId: number,
     dto: Record<string, number | string | string[] | boolean>,
     token: string,
-  ) {
+  ): Promise<null> {
     if (!page.instagram_account_id) {
       throw new BadRequestException(
         'This page has no linked Instagram account',
@@ -576,27 +586,31 @@ export class PostsService {
 
     const containerId = await this.createContainer(page, dto, token);
 
-    const publishId = await this.publishInstagramMedia(
-      page.instagram_account_id,
-      token,
-      containerId,
-    );
+    await this.prisma.postTarget.update({
+      where: { post_id_platform: { post_id: postId, platform: 'instagram' } },
+      data: {
+        status: 'processing',
+        container_id: containerId,
+        container_created_at: new Date(),
+      },
+    });
 
-    return publishId;
+    return null;
   }
 
-  private async publishInstagramCarousel(
+  private async deferInstagramCarousel(
     page: FacebookPage,
+    postId: number,
     dto: CreatePostDto,
     token: string,
-  ): Promise<string> {
+  ): Promise<null> {
     if (!page.instagram_account_id) {
       throw new BadRequestException(
         'This page has no linked Instagram account',
       );
     }
 
-    const childrenIds = await Promise.all(
+    const childContainerIds = await Promise.all(
       dto.media_urls.map((mediaUrl) =>
         this.createContainer(
           page,
@@ -606,16 +620,37 @@ export class PostsService {
       ),
     );
 
-    const containerId = await this.createContainer(
-      page,
-      { media_type: 'CAROUSEL', children: childrenIds, caption: dto.caption },
-      token,
-    );
+    await this.prisma.postTarget.update({
+      where: { post_id_platform: { post_id: postId, platform: 'instagram' } },
+      data: {
+        status: 'processing',
+        child_container_ids: childContainerIds,
+        container_created_at: new Date(),
+      },
+    });
 
-    return this.publishInstagramMedia(
-      page.instagram_account_id,
+    return null;
+  }
+
+  private isVideoUrl(url: string): boolean {
+    return /\.(mp4|mov|m4v|webm|avi|mkv)(\?.*)?$/i.test(url);
+  }
+
+  private async publishInstagramStory(
+    page: FacebookPage,
+    postId: number,
+    dto: CreatePostDto,
+    token: string,
+  ): Promise<null> {
+    const mediaUrl = dto.media_urls[0];
+
+    return this.deferInstagramContainer(
+      page,
+      postId,
+      this.isVideoUrl(mediaUrl)
+        ? { video_url: mediaUrl, media_type: 'STORIES' }
+        : { image_url: mediaUrl, media_type: 'STORIES' },
       token,
-      containerId,
     );
   }
 
@@ -636,99 +671,89 @@ export class PostsService {
     return status_code;
   }
 
-  // Used for any Instagram media_type that requires container processing
-  // time (REELS, STORIES videos): creates the container and hands it off
-  // to processPendingInstagramContainers() below instead of polling inline.
-  private async createInstagramVideoContainer(
-    page: FacebookPage,
-    postId: number,
-    dto: Record<string, number | string | string[] | boolean>,
-    token: string,
-  ): Promise<void> {
-    if (!page.instagram_account_id) {
-      throw new BadRequestException(
-        'This page has no linked Instagram account',
-      );
-    }
-
-    const containerId = await this.createContainer(page, dto, token);
-
-    await this.prisma.postTarget.update({
-      where: { post_id_platform: { post_id: postId, platform: 'instagram' } },
-      data: {
-        status: 'processing',
-        container_id: containerId,
-        container_created_at: new Date(),
-      },
-    });
-  }
-
-  private isVideoUrl(url: string): boolean {
-    return /\.(mp4|mov|m4v|webm|avi|mkv)(\?.*)?$/i.test(url);
-  }
-
-  private async publishInstagramStory(
-    page: FacebookPage,
-    postId: number,
-    dto: CreatePostDto,
-    token: string,
-  ): Promise<string | null> {
-    if (!page.instagram_account_id) {
-      throw new BadRequestException(
-        'This page has no linked Instagram account',
-      );
-    }
-
-    const mediaUrl = dto.media_urls[0];
-
-    if (this.isVideoUrl(mediaUrl)) {
-      await this.createInstagramVideoContainer(
-        page,
-        postId,
-        { video_url: mediaUrl, media_type: 'STORIES' },
-        token,
-      );
-      return null;
-    }
-
-    return this.publishInstagramSinglePhoto(
-      page,
-      { image_url: mediaUrl, media_type: 'STORIES' },
-      token,
-    );
-  }
-
   @Cron(CronExpression.EVERY_30_SECONDS)
   async processPendingInstagramContainers() {
     const pendingTargets = await this.prisma.postTarget.findMany({
-      where: { status: 'processing', container_id: { not: null } },
+      where: {
+        status: 'processing',
+        platform: 'instagram',
+        OR: [
+          { container_id: { not: null } },
+          { child_container_ids: { isEmpty: false } },
+        ],
+      },
       include: { post: { include: { facebook_page: true } } },
     });
 
     await Promise.all(
       pendingTargets.map(async (target) => {
         try {
-          const targetWithPage = target as {
-            container_id: string | null;
-            post: { facebook_page: FacebookPage | null };
-          };
-          const { container_id: containerId, post } = targetWithPage;
-          const page = post.facebook_page;
+          const page = (
+            target.post as unknown as {
+              facebook_page: FacebookPage | null;
+            }
+          ).facebook_page;
 
-          if (!containerId || !page?.instagram_account_id) {
+          if (!page?.instagram_account_id) {
             throw new BadRequestException(
-              'Instagram page or container is not available',
+              'Instagram page is not available for this post',
             );
           }
 
           const token = this.cipher.decrypt(page.page_access_token);
-          const statusCode = await this.getContainerStatus(containerId, token);
+
+          if (!target.container_id && target.child_container_ids.length > 0) {
+            const childStatuses = await Promise.all(
+              target.child_container_ids.map((id) =>
+                this.getContainerStatus(id, token),
+              ),
+            );
+
+            if (childStatuses.some((s) => s === 'ERROR' || s === 'EXPIRED')) {
+              await this.prisma.postTarget.update({
+                where: { id: target.id },
+                data: {
+                  status: 'failed',
+                  error_message:
+                    'One or more Instagram carousel items failed to process',
+                },
+              });
+              return;
+            }
+
+            if (!childStatuses.every((s) => s === 'FINISHED')) {
+              return;
+            }
+
+            const containerId = await this.createContainer(
+              page,
+              {
+                media_type: 'CAROUSEL',
+                children: target.child_container_ids,
+                caption: target.post.caption,
+              },
+              token,
+            );
+
+            await this.prisma.postTarget.update({
+              where: { id: target.id },
+              data: { container_id: containerId },
+            });
+            return;
+          }
+
+          if (!target.container_id) return;
+
+          const statusCode = await this.getContainerStatus(
+            target.container_id,
+            token,
+          );
 
           if (statusCode === 'FINISHED') {
             const publishId = await this.publishInstagramMedia(
               page.instagram_account_id,
               token,
-              containerId,
+              target.container_id,
             );
             await this.prisma.postTarget.update({
               where: { id: target.id },
@@ -747,7 +772,6 @@ export class PostsService {
               },
             });
           }
-          // IN_PROGRESS: leave as 'processing', picked up again next tick.
         } catch (error) {
           await this.prisma.postTarget.update({
             where: { id: target.id },
