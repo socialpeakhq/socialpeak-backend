@@ -636,9 +636,6 @@ export class PostsService {
     return status_code;
   }
 
-  // Used for any Instagram media_type that requires container processing
-  // time (REELS, STORIES videos): creates the container and hands it off
-  // to processPendingInstagramContainers() below instead of polling inline.
   private async createInstagramVideoContainer(
     page: FacebookPage,
     postId: number,
@@ -747,7 +744,6 @@ export class PostsService {
               },
             });
           }
-          // IN_PROGRESS: leave as 'processing', picked up again next tick.
         } catch (error) {
           await this.prisma.postTarget.update({
             where: { id: target.id },
