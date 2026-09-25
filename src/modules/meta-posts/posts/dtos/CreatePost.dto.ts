@@ -30,6 +30,10 @@ export class CreatePostDto {
   @IsBoolean()
   isScheduled: boolean = false;
 
+  @IsOptional()
+  @IsInt()
+  scheduled_at?: number;
+
   @IsNumber()
   @IsOptional()
   timestamp!: number;

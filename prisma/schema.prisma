@@ -87,6 +87,10 @@ model Post {
   media_urls       String[]     @default([])
   created_at       DateTime     @default(now())
   targets          PostTarget[]
+  scheduled_at     DateTime?
+  platforms        String[]     @default([])
+  status           String       @default("fired")
+  metadata         Json?
 }
 
 model PostTarget {

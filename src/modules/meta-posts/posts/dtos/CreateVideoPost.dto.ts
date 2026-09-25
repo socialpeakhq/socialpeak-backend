@@ -2,6 +2,7 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -30,6 +31,10 @@ export class CreateVideoPost {
   @IsBoolean()
   @IsOptional()
   isScheduled: boolean = false;
+
+  @IsOptional()
+  @IsInt()
+  scheduled_at?: number;
 
   @IsNumber()
   @IsOptional()
