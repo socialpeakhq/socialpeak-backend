@@ -5,7 +5,7 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
-import { FacebookPage, Prisma } from '@prisma/client';
+import { FacebookPage, Post, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { imageSize } from 'image-size';
 import sharp from 'sharp';
@@ -20,6 +20,7 @@ import { MetaGraphErrorResponse } from '../../meta/meta.types';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateVideoPost } from './dtos/CreateVideoPost.dto';
 import { PostQueryDto } from './dtos/PostQuery.dto';
+import { UpdateScheduledPostDto } from './dtos/EditPost.dto';
 
 const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -114,6 +115,21 @@ export class PostsService {
       where: { workspace_id: dto.workspace_id },
     });
 
+    if (dto.scheduled_at && dto.scheduled_at * 1000 > Date.now()) {
+      return this.prisma.post.create({
+        data: {
+          workspace_id: dto.workspace_id,
+          caption: dto.caption,
+          facebook_page_id: page.id,
+          type: 'post',
+          media_urls: dto.media_urls,
+          platforms: dto.platforms,
+          scheduled_at: new Date(dto.scheduled_at * 1000),
+          status: 'scheduled',
+          metadata: { link: dto.link, published: dto.published },
+        },
+      });
+    }
     const post = await this.prisma.post.create({
       data: {
         workspace_id: dto.workspace_id,
@@ -370,6 +386,67 @@ export class PostsService {
       where,
       include: { targets: true },
       orderBy: { created_at: 'desc' },
+    });
+  }
+
+  async updateScheduledPost(
+    userId: number,
+    postId: number,
+    dto: UpdateScheduledPostDto,
+  ) {
+    const post = await this.prisma.post.findUniqueOrThrow({
+      where: { id: postId },
+    });
+
+    await this.metaService.assertWorkspaceOwnership(userId, post.workspace_id);
+
+    if (post.status !== 'scheduled') {
+      throw new BadRequestException('This post is no longer editable');
+    }
+
+    if (dto.scheduled_at && dto.scheduled_at * 1000 <= Date.now()) {
+      throw new BadRequestException('The post is past schedule');
+    }
+
+    return this.prisma.post.update({
+      where: { id: postId },
+      data: {
+        ...(dto.caption !== undefined && { caption: dto.caption }),
+        ...(dto.media_urls !== undefined && { media_urls: dto.media_urls }),
+        ...(dto.platforms !== undefined && { platforms: dto.platforms }),
+        ...(dto.scheduled_at !== undefined && {
+          scheduled_at: new Date(dto.scheduled_at * 1000),
+        }),
+      },
+    });
+  }
+
+  async cancelScheduledPost(userId: number, postId: number) {
+    const post = await this.prisma.post.findUniqueOrThrow({
+      where: { id: postId },
+    });
+    await this.metaService.assertWorkspaceOwnership(userId, post.workspace_id);
+    if (post.status !== 'scheduled') {
+      throw new BadRequestException('This post is no longer cancellable');
+    }
+
+    return this.prisma.post.update({
+      where: { id: postId },
+      data: { status: 'cancelled', scheduled_at: null },
+    });
+  }
+
+  async getScheduledPosts(userId: number, workspace_id: number) {
+    await this.metaService.assertWorkspaceOwnership(userId, workspace_id);
+
+    return this.prisma.post.findMany({
+      where: {
+        workspace_id: workspace_id,
+        status: { in: ['scheduled', 'processing'] },
+      },
+      orderBy: {
+        scheduled_at: 'asc',
+      },
     });
   }
 
@@ -834,6 +911,142 @@ export class PostsService {
   }
 
   // PUBLISH INSTAGRAM FUNCTIONS //
+
+  private async publishScheduledPost(post: Post) {
+    const page = await this.prisma.facebookPage.findFirstOrThrow({
+      where: { workspace_id: post.workspace_id },
+    });
+
+    const token = this.cipher.decrypt(page.page_access_token);
+    const metaData = (post.metadata ?? {}) as Record<string, unknown>;
+
+    await this.prisma.postTarget.createMany({
+      data: post.platforms.map((platform) => ({
+        post_id: post.id,
+        platform,
+        status: 'pending',
+      })),
+    });
+
+    const results = await Promise.allSettled(
+      post.platforms.map(async (platform) => {
+        if (post.type === 'reel') {
+          return platform === 'facebook'
+            ? this.publishFacebookVideoPost(
+                page,
+                {
+                  description: post.caption,
+                  file_url: post.media_urls[0],
+                  platforms: post.platforms as Array<'facebook' | 'instagram'>,
+                  published: true,
+                  isScheduled: false,
+                  workspace_id: post.workspace_id,
+                  title: metaData.title as string,
+                  no_story: true,
+                  timestamp: 0,
+                },
+                token,
+              )
+            : this.deferInstagramContainer(
+                page,
+                post.id,
+                {
+                  video_url: post.media_urls[0],
+                  caption: post.caption,
+                  media_type: 'REELS',
+                },
+                token,
+              );
+        }
+
+        if (post.type === 'story') {
+          const storyDto = {
+            media_urls: post.media_urls,
+            caption: post.caption,
+            workspace_id: post.workspace_id,
+            platforms: post.platforms as Array<'facebook' | 'instagram'>,
+            link: '',
+            published: true,
+            timestamp: 0,
+            isScheduled: false,
+          };
+
+          return platform === 'facebook'
+            ? this.publishFacebookStory(page, storyDto, token)
+            : this.publishInstagramStory(page, post.id, storyDto, token);
+        }
+
+        const postDto = {
+          caption: post.caption,
+          media_urls: post.media_urls,
+          link: metaData.link as string,
+          workspace_id: post.id,
+          platforms: post.platforms,
+        } as CreatePostDto;
+
+        return platform === 'facebook'
+          ? this.publishToFacebook(page, postDto)
+          : this.publishToInstagram(page, post.id, postDto);
+      }),
+    );
+
+    await Promise.all(
+      results.map(async (result, index) => {
+        const platform = post.platforms[index];
+        if (result.status === 'fulfilled' && result.value === null) return null;
+        return result.status === 'fulfilled'
+          ? this.prisma.postTarget.update({
+              where: { post_id_platform: { post_id: post.id, platform } },
+              data: {
+                status: 'published',
+                external_post_id: result.value,
+                published_at: new Date(),
+              },
+            })
+          : this.prisma.postTarget.update({
+              where: { post_id_platform: { post_id: post.id, platform } },
+              data: {
+                status: 'failed',
+                error_message: String(result.reason),
+              },
+            });
+      }),
+    );
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async publishPendingScheduledPosts() {
+    const posts = await this.prisma.post.findMany({
+      where: { status: 'scheduled', scheduled_at: { lte: new Date() } },
+    });
+
+    await Promise.all(
+      posts.map(async (post) => {
+        const claim = await this.prisma.post.updateMany({
+          where: { id: post.id, status: 'scheduled' },
+          data: {
+            status: 'processing',
+          },
+        });
+
+        if (claim.count === 0) return;
+        try {
+          await this.publishScheduledPost(post);
+          await this.prisma.post.update({
+            where: { id: post.id },
+            data: { status: 'fired' },
+          });
+        } catch {
+          await this.prisma.post.update({
+            where: { id: post.id },
+            data: {
+              status: 'scheduled',
+            },
+          });
+        }
+      }),
+    );
+  }
 
   // HELPER FUNCTIONS //
   private async request<T>(

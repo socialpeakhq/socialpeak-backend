@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   UsePipes,
@@ -15,6 +17,7 @@ import type { JwtPayload } from '../../../decorators/current-user.decorator';
 import { CreatePostDto } from './dtos/CreatePost.dto';
 import { CreateVideoPost } from './dtos/CreateVideoPost.dto';
 import { PostQueryDto } from './dtos/PostQuery.dto';
+import { UpdateScheduledPostDto } from './dtos/EditPost.dto';
 
 @Controller('posts')
 export class PostsController {
@@ -59,5 +62,31 @@ export class PostsController {
     @Query(new ValidationPipe({ transform: true })) query: PostQueryDto,
   ) {
     return this.postsService.getWorkspacePosts(user.sub, workspaceId, query);
+  }
+
+  @Patch('schedule/:id')
+  @UsePipes(ValidationPipe)
+  async updateScheduledPost(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateScheduledPostDto,
+  ) {
+    return this.postsService.updateScheduledPost(user.sub, id, dto);
+  }
+
+  @Delete('schedule/:id')
+  async cancelScheduledPost(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.postsService.cancelScheduledPost(user.sub, id);
+  }
+
+  @Get('scheduled/:workspace_id')
+  async getScheduledPosts(
+    @CurrentUser() user: JwtPayload,
+    @Param('workspace_id', ParseIntPipe) workspace_id: number,
+  ) {
+    return this.postsService.getScheduledPosts(user.sub, workspace_id);
   }
 }
