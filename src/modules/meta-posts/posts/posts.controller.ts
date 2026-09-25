@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { CurrentUser } from '../../../decorators/current-user.decorator';
 import type { JwtPayload } from '../../../decorators/current-user.decorator';
 import { CreatePostDto } from './dtos/CreatePost.dto';
 import { CreateVideoPost } from './dtos/CreateVideoPost.dto';
+import { PostQueryDto } from './dtos/PostQuery.dto';
 
 @Controller('posts')
 export class PostsController {
@@ -54,7 +56,8 @@ export class PostsController {
   async getWorkspacePosts(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId', ParseIntPipe) workspaceId: number,
+    @Query(new ValidationPipe({ transform: true })) query: PostQueryDto,
   ) {
-    return this.postsService.getWorkspacePosts(user.sub, workspaceId);
+    return this.postsService.getWorkspacePosts(user.sub, workspaceId, query);
   }
 }

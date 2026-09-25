@@ -5,10 +5,11 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
-import { FacebookPage } from '@prisma/client';
+import { FacebookPage, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { imageSize } from 'image-size';
 import sharp from 'sharp';
+import { subDays } from 'date-fns';
 import { CreatePostDto } from './dtos/CreatePost.dto';
 import { TokenCipher } from '../../../utils/token-cipher';
 import {
@@ -18,6 +19,7 @@ import {
 import { MetaGraphErrorResponse } from '../../meta/meta.types';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateVideoPost } from './dtos/CreateVideoPost.dto';
+import { PostQueryDto } from './dtos/PostQuery.dto';
 
 const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -319,18 +321,67 @@ export class PostsService {
     });
   }
 
-  async getWorkspacePosts(userId: number, workspaceId: number) {
+  async getWorkspacePosts(
+    userId: number,
+    workspaceId: number,
+    querySearchParams: PostQueryDto,
+  ) {
     await this.metaService.assertWorkspaceOwnership(userId, workspaceId);
 
-    const posts = await this.prisma.post.findMany({
-      where: { workspace_id: workspaceId },
-      include: { targets: true },
-    });
+    const { date, platforms, searchField, statuses, types } = querySearchParams;
 
-    return posts;
+    const where: Prisma.PostWhereInput = { workspace_id: workspaceId };
+
+    const search = searchField.trim();
+    if (search) {
+      const or: Prisma.PostWhereInput[] = [
+        { caption: { contains: search, mode: 'insensitive' } },
+      ];
+      if (/^\d+$/.test(search) && Number.isSafeInteger(Number(search))) {
+        or.push({ id: Number(search) });
+      }
+      where.OR = or;
+    }
+
+    const typeList = this.parseFilterList(types);
+    if (typeList) where.type = { in: typeList };
+
+    const DATE_RANGES: Record<string, number> = {
+      '7d': 7,
+      '30d': 30,
+      '90d': 90,
+    };
+    if (DATE_RANGES[date]) {
+      where.created_at = { gte: subDays(new Date(), DATE_RANGES[date]) };
+    }
+
+    const platformList = this.parseFilterList(platforms);
+    const statusList = this.parseFilterList(statuses);
+    if (platformList || statusList) {
+      where.targets = {
+        some: {
+          ...(platformList && { platform: { in: platformList } }),
+          ...(statusList && { status: { in: statusList } }),
+        },
+      };
+    }
+
+    return this.prisma.post.findMany({
+      where,
+      include: { targets: true },
+      orderBy: { created_at: 'desc' },
+    });
   }
 
   // PRIVATE FUNCTIONS //
+
+  private parseFilterList(value: string): string[] | null {
+    const list = value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return list.length === 0 || list.includes('all') ? null : list;
+  }
 
   private async padToSupportedAspectRatio(
     buffer: Buffer,
