@@ -653,7 +653,7 @@ export class PostsService {
     const result = await this.request<{ id: string }>(photosUrl, 'POST');
 
     const publishUrl = new URL(
-      `${this.config.get('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/photo_stories`,
+      `${this.config.get('FACEBOOK_GRAPH_URL') ?? ''}/${this.graphVersion}/${page.page_id}/photo_stories`,
     );
     publishUrl.searchParams.set('photo_id', result.id);
     publishUrl.searchParams.set('access_token', token);
