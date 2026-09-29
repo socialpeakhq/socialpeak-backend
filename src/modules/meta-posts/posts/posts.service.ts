@@ -27,6 +27,8 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/png': 'png',
   'image/gif': 'gif',
   'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
 };
 
 const MIN_ASPECT_RATIO = 0.8;
@@ -61,31 +63,36 @@ export class PostsService {
     );
 
     return Promise.all(
-      media.map(async (image: string) => {
-        const match = image.match(
-          /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/,
+      media.map(async (item: string) => {
+        const match = item.match(
+          /^data:((?:image|video)\/[a-zA-Z0-9+.-]+);base64,(.+)$/,
         );
         if (!match) {
-          throw new BadRequestException('Invalid image data URL');
+          throw new BadRequestException('Invalid media data URL');
         }
 
         const [, mimeType, base64Data] = match;
         const extension = EXTENSION_BY_MIME_TYPE[mimeType];
         if (!extension) {
-          throw new BadRequestException(`Unsupported image type: ${mimeType}`);
+          throw new BadRequestException(`Unsupported media type: ${mimeType}`);
         }
 
         let buffer: Buffer = Buffer.from(base64Data, 'base64');
 
-        const { width, height } = imageSize(buffer);
-        const aspectRatio = width / height;
-        if (aspectRatio < MIN_ASPECT_RATIO || aspectRatio > MAX_ASPECT_RATIO) {
-          buffer = await this.padToSupportedAspectRatio(
-            buffer,
-            width,
-            height,
-            mimeType,
-          );
+        if (mimeType.startsWith('image/')) {
+          const { width, height } = imageSize(buffer);
+          const aspectRatio = width / height;
+          if (
+            aspectRatio < MIN_ASPECT_RATIO ||
+            aspectRatio > MAX_ASPECT_RATIO
+          ) {
+            buffer = await this.padToSupportedAspectRatio(
+              buffer,
+              width,
+              height,
+              mimeType,
+            );
+          }
         }
 
         const key = `${createHash('sha1').update(buffer).digest('hex')}.${extension}`;
@@ -193,6 +200,22 @@ export class PostsService {
     const page = await this.prisma.facebookPage.findFirstOrThrow({
       where: { workspace_id: dto.workspace_id },
     });
+
+    if (dto.scheduled_at && dto.scheduled_at * 1000 > Date.now()) {
+      return this.prisma.post.create({
+        data: {
+          workspace_id: dto.workspace_id,
+          caption: dto.description,
+          facebook_page_id: page.id,
+          type: 'reel',
+          media_urls: [dto.file_url],
+          platforms: dto.platforms,
+          scheduled_at: new Date(dto.scheduled_at * 1000),
+          status: 'scheduled',
+          metadata: { title: dto.title, no_story: dto.no_story },
+        },
+      });
+    }
 
     const token = this.cipher.decrypt(page.page_access_token);
 
@@ -629,8 +652,6 @@ export class PostsService {
     url.searchParams.set('no_story', String(dto.no_story));
     url.searchParams.set('published', String(dto.published));
     url.searchParams.set('access_token', token);
-    if (dto.isScheduled)
-      url.searchParams.set('scheduled_publish_time', String(dto.timestamp));
 
     const result = await this.request<{ id: string }>(url, 'POST');
 
@@ -942,7 +963,7 @@ export class PostsService {
                   isScheduled: false,
                   workspace_id: post.workspace_id,
                   title: metaData.title as string,
-                  no_story: true,
+                  no_story: (metaData.no_story as boolean) ?? false,
                   timestamp: 0,
                 },
                 token,
