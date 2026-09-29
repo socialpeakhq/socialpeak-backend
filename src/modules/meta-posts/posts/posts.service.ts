@@ -431,6 +431,12 @@ export class PostsService {
       throw new BadRequestException('The post is past schedule');
     }
 
+    const existingMetadata = (post.metadata ?? {}) as Record<string, unknown>;
+    const hasMetadataChange =
+      dto.title !== undefined ||
+      dto.no_story !== undefined ||
+      dto.link !== undefined;
+
     return this.prisma.post.update({
       where: { id: postId },
       data: {
@@ -439,6 +445,14 @@ export class PostsService {
         ...(dto.platforms !== undefined && { platforms: dto.platforms }),
         ...(dto.scheduled_at !== undefined && {
           scheduled_at: new Date(dto.scheduled_at * 1000),
+        }),
+        ...(hasMetadataChange && {
+          metadata: {
+            ...existingMetadata,
+            ...(dto.title !== undefined && { title: dto.title }),
+            ...(dto.no_story !== undefined && { no_story: dto.no_story }),
+            ...(dto.link !== undefined && { link: dto.link }),
+          },
         }),
       },
     });
