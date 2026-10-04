@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Post,
   UsePipes,
   ValidationPipe,
@@ -36,6 +37,11 @@ export class AuthController {
   @UsePipes(ValidationPipe)
   refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshTokens(refreshTokenDto.refresh_token);
+  }
+
+  @Get('auth-details')
+  getMe(@CurrentUser() user: JwtPayload) {
+    return this.authService.getMe(user.sub);
   }
 
   @Post('logout')

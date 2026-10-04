@@ -139,6 +139,13 @@ export class AuthService {
     return this.generateTokens(safeUser);
   }
 
+  async getMe(userId: number) {
+    return this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: authUserSelect,
+    });
+  }
+
   async logout(userId: number) {
     await this.prisma.user.update({
       where: { id: userId },
