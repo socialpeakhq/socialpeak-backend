@@ -9,15 +9,12 @@ import { AuthGuard } from './guards/auth.guard';
 import { MetaModule } from './modules/meta/meta.module';
 import { MetaInsightsModule } from './modules/meta-insights/meta-insights.module';
 import { ScheduleModule } from '@nestjs/schedule';
-import { PostsService } from './modules/meta-posts/posts/posts.service';
-import { PostsController } from './modules/meta-posts/posts/posts.controller';
 import { PostsModule } from './modules/meta-posts/posts/posts.module';
-import { PostAnalyticsService } from './modules/post-analytics/post-analytics.service';
 import { PostAnalyticsModule } from './modules/post-analytics/post-analytics.module';
 
 @Module({
-  controllers: [AppController, PostsController],
-  providers: [AppService, { provide: APP_GUARD, useClass: AuthGuard }, PostsService, PostAnalyticsService],
+  controllers: [AppController],
+  providers: [AppService, { provide: APP_GUARD, useClass: AuthGuard }],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
