@@ -94,9 +94,9 @@ model Post {
 }
 
 model PostTarget {
-  id                   Int       @id @default(autoincrement())
+  id                   Int             @id @default(autoincrement())
   post_id              Int
-  post                 Post      @relation(fields: [post_id], references: [id])
+  post                 Post            @relation(fields: [post_id], references: [id])
   platform             String // 'facebook' | 'instagram'
   status               String // 'pending' | 'processing' | 'published' | 'failed'
   external_post_id     String?
@@ -104,7 +104,21 @@ model PostTarget {
   published_at         DateTime?
   container_id         String?
   container_created_at DateTime?
-  child_container_ids  String[]  @default([])
+  child_container_ids  String[]        @default([])
+  postAnalytics        PostAnalytics[]
 
   @@unique([post_id, platform])
+}
+
+model PostAnalytics {
+  id             Int        @id @default(autoincrement())
+  post_target_id Int
+  post_target    PostTarget @relation(fields: [post_target_id], references: [id])
+  metric         String
+  value          Int
+  captured_at    DateTime
+  created_at     DateTime   @default(now())
+
+  @@unique([post_target_id, metric, captured_at])
+  @@index([post_target_id, captured_at])
 }
