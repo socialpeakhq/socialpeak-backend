@@ -95,6 +95,43 @@ export class PostAnalyticsService {
     }
   }
 
+  async getWorkspacePostAnalytics(user_id: number, workspace_id: number) {
+    if (!workspace_id) return;
+
+    await this.meta.assertWorkspaceOwnership(user_id, workspace_id);
+
+    const postsWithTargetsAnalytics = await this.prisma.post.findMany({
+      where: { workspace_id: workspace_id },
+      include: { targets: { include: { postAnalytics: true } } },
+    });
+
+    return postsWithTargetsAnalytics;
+  }
+
+  async getSinglePostAnalytics(
+    user_id: number,
+    workspace_id: number,
+    post_id: number,
+  ) {
+    if (!post_id || !workspace_id) return;
+
+    await this.meta.assertWorkspaceOwnership(user_id, workspace_id);
+
+    const foundPost = await this.prisma.post.findFirstOrThrow({
+      where: {
+        workspace_id: workspace_id,
+        id: post_id,
+      },
+      include: { targets: { include: { postAnalytics: true } } },
+    });
+
+    if (!foundPost) return;
+
+    return foundPost;
+  }
+
+  // PRIVATE FUNCTIONS //
+
   private async syncTarget(
     metrics: string,
     capturedAt: Date,
