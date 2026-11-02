@@ -1,13 +1,20 @@
-import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
+import {
+  Controller,
+  DefaultValuePipe,
+  Get,
+  Param,
+  ParseIntPipe,
+  Query,
+} from '@nestjs/common';
 import { PostAnalyticsService } from './post-analytics.service';
 import type { JwtPayload } from '../../decorators/current-user.decorator';
 import { CurrentUser } from '../../decorators/current-user.decorator';
 
-@Controller('post-analytics')
+@Controller('post')
 export class PostAnalyticsController {
   constructor(private readonly postAnalyticsService: PostAnalyticsService) {}
 
-  @Get('/post/analytics/:workspaceId')
+  @Get('/analytics/:workspaceId')
   getPostsAnalytics(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId', ParseIntPipe) workspaceId: number,
@@ -18,16 +25,18 @@ export class PostAnalyticsController {
     );
   }
 
-  @Get('/post/analytics/:workspaceId/:postId')
+  @Get('/analytics/:workspaceId/:postId')
   getSinglePostAnalytics(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId', ParseIntPipe) workspaceId: number,
     @Param('postId', ParseIntPipe) postId: number,
+    @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
   ) {
     return this.postAnalyticsService.getSinglePostAnalytics(
       user.sub,
       workspaceId,
       postId,
+      days,
     );
   }
 }

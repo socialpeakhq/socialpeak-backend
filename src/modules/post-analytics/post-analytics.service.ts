@@ -1,11 +1,22 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { DEFAULT_GRAPH_API_VERSION, MetaService } from '../meta/meta.service';
 import { TokenCipher } from '../../utils/token-cipher';
 import { MetaGraphErrorResponse } from '../meta/meta.types';
-import { MetaPostInsightsResponse } from './post-analytics.types';
+import {
+  MetaPostInsightsResponse,
+  MetricAnalytics,
+  MetricBaseline,
+  SinglePostAnalyticsResponse,
+  TargetAnalytics,
+} from './post-analytics.types';
 import { Prisma } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
@@ -59,6 +70,74 @@ type PostSyncTarget = Prisma.PostTargetGetPayload<{
   include: typeof postSyncTargetInclude;
 }>;
 
+type PostTargetWithAnalytics = Prisma.PostTargetGetPayload<{
+  include: { postAnalytics: true };
+}>;
+
+type AnalyticsRow = { metric: string; value: number; captured_at: Date };
+
+type PoolTarget = {
+  published_at: Date | null;
+  postAnalytics: AnalyticsRow[];
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TRACKING_WINDOW_DAYS = 14;
+const MIN_BASELINE_SAMPLE = 3;
+const ALLOWED_PERIODS = [7, 30, 90];
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// Days between the publish day and `date`, both at midnight. Rounded so a DST
+// shift (23h or 25h days) doesn't knock the index off by one.
+function dayIndex(date: Date, published_at: Date): number {
+  return Math.round(
+    (startOfDay(date).getTime() - startOfDay(published_at).getTime()) / DAY_MS,
+  );
+}
+
+function toDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Median of each comparable post's value for `metric` on the same day of age.
+// Posts with no row for that day (too young, or a missed cron day) are left out.
+function computeBaseline(
+  pool: PoolTarget[],
+  metric: string,
+  compared_at_day: number,
+): MetricBaseline | null {
+  const values: number[] = [];
+
+  for (const other of pool) {
+    if (!other.published_at) continue;
+    const publishedAt = other.published_at;
+    const row = other.postAnalytics.find(
+      (r) =>
+        r.metric === metric &&
+        dayIndex(r.captured_at, publishedAt) === compared_at_day,
+    );
+    if (row) values.push(row.value);
+  }
+
+  if (values.length < MIN_BASELINE_SAMPLE) return null;
+
+  return { typical: median(values), sample: values.length, compared_at_day };
+}
+
 @Injectable()
 export class PostAnalyticsService {
   private readonly logger = new Logger(PostAnalyticsService.name);
@@ -96,13 +175,15 @@ export class PostAnalyticsService {
   }
 
   async getWorkspacePostAnalytics(user_id: number, workspace_id: number) {
-    if (!workspace_id) return;
-
     await this.meta.assertWorkspaceOwnership(user_id, workspace_id);
 
     const postsWithTargetsAnalytics = await this.prisma.post.findMany({
       where: { workspace_id: workspace_id },
-      include: { targets: { include: { postAnalytics: true } } },
+      include: {
+        targets: {
+          include: { postAnalytics: { orderBy: { captured_at: 'asc' } } },
+        },
+      },
     });
 
     return postsWithTargetsAnalytics;
@@ -112,25 +193,138 @@ export class PostAnalyticsService {
     user_id: number,
     workspace_id: number,
     post_id: number,
-  ) {
-    if (!post_id || !workspace_id) return;
+    period_days: number,
+  ): Promise<SinglePostAnalyticsResponse> {
+    if (!ALLOWED_PERIODS.includes(period_days)) {
+      throw new BadRequestException(
+        `days must be one of ${ALLOWED_PERIODS.join(', ')}`,
+      );
+    }
 
     await this.meta.assertWorkspaceOwnership(user_id, workspace_id);
 
-    const foundPost = await this.prisma.post.findFirstOrThrow({
-      where: {
-        workspace_id: workspace_id,
-        id: post_id,
+    const foundPost = await this.prisma.post.findFirst({
+      where: { workspace_id, id: post_id },
+      include: {
+        targets: {
+          include: { postAnalytics: { orderBy: { captured_at: 'asc' } } },
+        },
       },
-      include: { targets: { include: { postAnalytics: true } } },
     });
 
-    if (!foundPost) return;
+    if (!foundPost) throw new NotFoundException('Post not found');
 
-    return foundPost;
+    const today = startOfDay(new Date());
+    const periodStart = new Date(today.getTime() - period_days * DAY_MS);
+
+    const targets = await Promise.all<TargetAnalytics>(
+      foundPost.targets.map(
+        (target: PostTargetWithAnalytics): Promise<TargetAnalytics> =>
+          this.buildTargetAnalytics(
+            target,
+            foundPost.type,
+            workspace_id,
+            today,
+            periodStart,
+          ),
+      ),
+    );
+
+    const publishedDates = foundPost.targets
+      .map((t) => t.published_at)
+      .filter((d): d is Date => d !== null);
+
+    return {
+      post: {
+        id: foundPost.id,
+        type: foundPost.type,
+        caption: foundPost.caption,
+        media_urls: foundPost.media_urls,
+        published_at: publishedDates.length
+          ? new Date(Math.min(...publishedDates.map((d) => d.getTime())))
+          : null,
+      },
+      period_days,
+      targets,
+    };
   }
 
   // PRIVATE FUNCTIONS //
+
+  private async buildTargetAnalytics(
+    target: PostTargetWithAnalytics,
+    post_type: string,
+    workspace_id: number,
+    today: Date,
+    periodStart: Date,
+  ): Promise<TargetAnalytics> {
+    const base = { target_id: target.id, platform: target.platform };
+
+    if (target.status !== 'published' || !target.published_at) {
+      return { ...base, status: 'not_published', age_days: null, metrics: [] };
+    }
+
+    const published_at = target.published_at;
+    const age_days = dayIndex(today, published_at);
+
+    if (target.postAnalytics.length === 0) {
+      return {
+        ...base,
+        status: age_days < 1 ? 'collecting' : 'unavailable',
+        age_days,
+        metrics: [],
+      };
+    }
+
+    const rowsByMetric = new Map<string, AnalyticsRow[]>();
+    for (const row of target.postAnalytics) {
+      const rows = rowsByMetric.get(row.metric) ?? [];
+      rows.push(row);
+      rowsByMetric.set(row.metric, rows);
+    }
+
+    // Comparison pool: other published targets on the same platform, same post
+    // type and workspace, published within the selected period.
+    const pool = await this.prisma.postTarget.findMany({
+      where: {
+        id: { not: target.id },
+        platform: target.platform,
+        status: 'published',
+        published_at: { gte: periodStart },
+        post: { workspace_id, type: post_type },
+      },
+      select: {
+        published_at: true,
+        postAnalytics: {
+          select: { metric: true, value: true, captured_at: true },
+        },
+      },
+    });
+
+    const metrics: MetricAnalytics[] = [...rowsByMetric.entries()].map(
+      ([metric, rows]) => {
+        const latest = rows[rows.length - 1];
+        // Compare at the age of this post's own latest data point, so a
+        // still-growing post isn't measured against other posts' final totals.
+        const compared_at_day = Math.min(
+          dayIndex(latest.captured_at, published_at),
+          TRACKING_WINDOW_DAYS,
+        );
+
+        return {
+          metric,
+          value: latest.value,
+          series: rows.map((r) => ({
+            date: toDateKey(r.captured_at),
+            value: r.value,
+          })),
+          baseline: computeBaseline(pool, metric, compared_at_day),
+        };
+      },
+    );
+
+    return { ...base, status: 'value', age_days, metrics };
+  }
 
   private async syncTarget(
     metrics: string,
